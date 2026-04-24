@@ -1,17 +1,39 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type {
+  ExternalObjectMention,
   ExternalObjectMentionGroup,
   ExternalObjectSummary,
 } from "@paperclipai/shared";
 import { externalObjectsApi } from "../api/externalObjects";
 import { queryKeys } from "../lib/queryKeys";
 import { normalizeExternalObjectHref } from "../lib/external-object-href";
-import {
-  formatExternalObjectMentionSourceLabel,
-} from "@paperclipai/shared";
 import type { MarkdownExternalReferenceMap } from "../components/MarkdownBody";
 import type { ExternalObjectPillData } from "../components/ExternalObjectPill";
+
+/**
+ * Browser-safe mention-source label. Mirrors the shared/server helper but
+ * avoids importing `@paperclipai/shared/external-objects.ts` (which pulls in
+ * `node:crypto`). Keep in sync with the shared formatter.
+ */
+function formatMentionSourceLabel(mention: ExternalObjectMention): string {
+  switch (mention.sourceKind) {
+    case "title":
+      return "Title";
+    case "description":
+      return "Description";
+    case "comment":
+      return "Comment";
+    case "document":
+      return mention.documentKey ? `Document: ${mention.documentKey}` : "Document";
+    case "property":
+      return mention.propertyKey ? `Property: ${mention.propertyKey}` : "Property";
+    case "plugin":
+      return "Plugin";
+    default:
+      return "Source";
+  }
+}
 
 export interface IssueExternalObjectGroup {
   pill: ExternalObjectPillData;
@@ -52,13 +74,7 @@ export function useIssueExternalObjects(issueId: string | null | undefined): Iss
         const object = entry.object!;
         const sourceLabels = entry.sourceLabels && entry.sourceLabels.length > 0
           ? entry.sourceLabels
-          : Array.from(new Set(entry.mentions.map((mention) =>
-              formatExternalObjectMentionSourceLabel({
-                sourceKind: mention.sourceKind,
-                documentKey: mention.documentKey,
-                propertyKey: mention.propertyKey,
-              }),
-            )));
+          : Array.from(new Set(entry.mentions.map(formatMentionSourceLabel)));
         return {
           group: entry,
           mentionCount: entry.mentionCount ?? entry.mentions.length,

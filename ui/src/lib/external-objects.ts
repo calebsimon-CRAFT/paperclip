@@ -189,13 +189,15 @@ export function dominantExternalObjectTone(
 
 /**
  * For the sidebar / list rollup we want the count of objects matching the
- * dominant severity (e.g. "3 failed PRs"), not the global total.
+ * dominant severity (e.g. "3 failed PRs"), not the global total. Returns 0
+ * whenever the dominant tone is muted so callers can render based on the
+ * count without double-checking the rollup-hide rule.
  */
 export function externalObjectDominantCount(
   summary: Pick<ExternalObjectSummary, "highestSeverity" | "objects"> | null | undefined,
 ): number {
   if (!summary) return 0;
-  const tone = summary.highestSeverity;
+  const tone = dominantExternalObjectTone(summary);
   if (!tone) return 0;
   return summary.objects.filter((object) => object.statusTone === tone).length;
 }
