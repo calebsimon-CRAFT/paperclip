@@ -88,6 +88,7 @@ import { IssueScheduledRetryCard } from "../components/IssueScheduledRetryCard";
 import { IssueProperties } from "../components/IssueProperties";
 import { PauseAffectsSummaryView } from "../components/interrupt-handoff/InterruptHandoffViews";
 import { computePauseAffectsSummary } from "../lib/interrupt-handoff";
+import { useIssueExternalObjects } from "../hooks/useIssueExternalObjects";
 import { IssueRunLedger } from "../components/IssueRunLedger";
 import { IssueWorkspaceCard } from "../components/IssueWorkspaceCard";
 import type { MentionOption } from "../components/MarkdownEditor";
@@ -1355,6 +1356,7 @@ export function IssueDetail() {
     enabled: !!issueId,
   });
   const resolvedCompanyId = issue?.companyId ?? selectedCompanyId;
+  const externalObjectsState = useIssueExternalObjects(issue?.id ?? null);
   const commentComposerDisabledReason = useMemo(() => {
     if (!issue?.currentExecutionWorkspace || !isClosedIsolatedExecutionWorkspace(issue.currentExecutionWorkspace)) {
       return null;
@@ -2859,6 +2861,10 @@ export function IssueDetail() {
         onAddSubIssue={openNewSubIssue}
         onUpdate={handleIssuePropertiesUpdate}
         hasActiveRun={resolvedHasActiveRun}
+        externalObjects={externalObjectsState.groups}
+        externalObjectsLoading={externalObjectsState.isLoading}
+        externalObjectsError={externalObjectsState.isError}
+        onRetryExternalObjects={externalObjectsState.refetch}
       />
     );
     return () => closePanel();
@@ -2871,6 +2877,10 @@ export function IssueDetail() {
     panelChildIssues,
     panelIssue,
     resolvedHasActiveRun,
+    externalObjectsState.groups,
+    externalObjectsState.isLoading,
+    externalObjectsState.isError,
+    externalObjectsState.refetch,
   ]);
 
   const goToInboxShortcutArmedRef = useRef(false);
@@ -3947,6 +3957,7 @@ export function IssueDetail() {
           multiline
           foldable
           mentions={mentionOptions}
+          externalReferences={externalObjectsState.markdownReferences}
           imageUploadHandler={async (file) => {
             const attachment = await uploadAttachment.mutateAsync(file);
             return attachment.contentPath;
@@ -4268,7 +4279,13 @@ export function IssueDetail() {
         </TabsContent>
 
         <TabsContent value="related-work">
-          <IssueRelatedWorkPanel relatedWork={issue.relatedWork} />
+          <IssueRelatedWorkPanel
+            relatedWork={issue.relatedWork}
+            externalObjects={externalObjectsState.groups}
+            externalObjectsLoading={externalObjectsState.isLoading}
+            externalObjectsError={externalObjectsState.isError}
+            onRetryExternalObjects={externalObjectsState.refetch}
+          />
         </TabsContent>
 
         {activePluginTab && (
@@ -4456,6 +4473,10 @@ export function IssueDetail() {
                 onUpdate={(data) => updateIssue.mutate(data)}
                 inline
                 hasActiveRun={resolvedHasActiveRun}
+                externalObjects={externalObjectsState.groups}
+                externalObjectsLoading={externalObjectsState.isLoading}
+                externalObjectsError={externalObjectsState.isError}
+                onRetryExternalObjects={externalObjectsState.refetch}
               />
             </div>
           </ScrollArea>

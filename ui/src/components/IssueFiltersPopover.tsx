@@ -9,6 +9,8 @@ import { PriorityIcon } from "./PriorityIcon";
 import { StatusIcon } from "./StatusIcon";
 import {
   defaultIssueFilterState,
+  externalObjectFilterLabel,
+  externalObjectFilterOrder,
   issueFilterArraysEqual,
   issueFilterLabel,
   issuePriorityOrder,
@@ -17,6 +19,8 @@ import {
   toggleIssueFilterValue,
   type IssueFilterState,
 } from "../lib/issue-filters";
+import { externalObjectIconForCategory } from "../lib/external-objects";
+import { externalObjectStatusIcon } from "../lib/status-colors";
 import { formatAssigneeUserLabel } from "../lib/assignees";
 
 type AgentOption = {
@@ -343,6 +347,37 @@ export function IssueFiltersPopover({
                   </div>
                 </div>
               ) : null}
+
+              <div className="space-y-1">
+                <span className="text-xs text-muted-foreground">External object status</span>
+                <div className="space-y-0.5">
+                  {externalObjectFilterOrder.map((value) => {
+                    const iconCategory = value === "failed" ? "failed"
+                      : value === "waiting" ? "waiting"
+                      : value === "running" ? "running"
+                      : value === "auth_required" ? "auth_required"
+                      : value === "unreachable" ? "unreachable"
+                      : value === "stale" ? "unknown"
+                      : "closed";
+                    const Icon = externalObjectIconForCategory(iconCategory);
+                    const tone = externalObjectStatusIcon[iconCategory] ?? "";
+                    const textTone = tone.split(" ").filter((c) => c.startsWith("text-")).join(" ");
+                    return (
+                      <label
+                        key={value}
+                        className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 hover:bg-accent/50"
+                      >
+                        <Checkbox
+                          checked={state.externalObjectStatuses.includes(value)}
+                          onCheckedChange={() => onChange({ externalObjectStatuses: toggleIssueFilterValue(state.externalObjectStatuses, value) })}
+                        />
+                        <Icon className={`h-3.5 w-3.5 shrink-0 ${textTone}`} aria-hidden="true" />
+                        <span className="text-sm">{externalObjectFilterLabel(value)}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
 
               <div className="space-y-1">
                 <span className="text-xs text-muted-foreground">Visibility</span>

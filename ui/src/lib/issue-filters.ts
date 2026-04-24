@@ -19,6 +19,21 @@ export type IssueFilterState = {
   projects: string[];
   workspaces: string[];
   liveOnly?: boolean;
+  /**
+   * External object status filter. Values are special tokens that map to
+   * properties of the issue's external-object summary (rather than to a
+   * single category) so the filter UI can describe intent rather than every
+   * possible permutation.
+   *
+   *   - `failed`         — any external object with `statusCategory in (failed, blocked)`
+   *   - `waiting`        — any external object with `statusCategory in (waiting)`
+   *   - `running`        — any external object with `statusCategory in (running)`
+   *   - `auth_required`  — any external object with `liveness == auth_required`
+   *   - `unreachable`    — any external object with `liveness == unreachable`
+   *   - `stale`          — any external object with `liveness == stale`
+   *   - `none`           — issues with zero external objects
+   */
+  externalObjectStatuses: string[];
   hideRoutineExecutions: boolean;
 };
 
@@ -31,8 +46,33 @@ export const defaultIssueFilterState: IssueFilterState = {
   projects: [],
   workspaces: [],
   liveOnly: false,
+  externalObjectStatuses: [],
   hideRoutineExecutions: false,
 };
+
+export const externalObjectFilterOrder = [
+  "failed",
+  "waiting",
+  "running",
+  "auth_required",
+  "unreachable",
+  "stale",
+  "none",
+];
+
+const EXTERNAL_OBJECT_FILTER_LABELS: Record<string, string> = {
+  failed: "Any failed",
+  waiting: "Any waiting",
+  running: "Any running",
+  auth_required: "Auth required",
+  unreachable: "Unreachable",
+  stale: "Stale",
+  none: "No external objects",
+};
+
+export function externalObjectFilterLabel(value: string): string {
+  return EXTERNAL_OBJECT_FILTER_LABELS[value] ?? issueFilterLabel(value);
+}
 
 export const issueStatusOrder = ["in_progress", "todo", "backlog", "in_review", "blocked", "done", "cancelled"];
 export const issuePriorityOrder = ["critical", "high", "medium", "low"];
@@ -72,6 +112,7 @@ export function normalizeIssueFilterState(value: unknown): IssueFilterState {
     projects: normalizeIssueFilterValueArray(candidate.projects),
     workspaces: normalizeIssueFilterValueArray(candidate.workspaces),
     liveOnly: candidate.liveOnly === true,
+    externalObjectStatuses: normalizeIssueFilterValueArray(candidate.externalObjectStatuses),
     hideRoutineExecutions: candidate.hideRoutineExecutions === true,
   };
 }
@@ -182,6 +223,7 @@ export function countActiveIssueFilters(
   if (state.projects.length > 0) count += 1;
   if (state.workspaces.length > 0) count += 1;
   if (state.liveOnly) count += 1;
+  if (state.externalObjectStatuses.length > 0) count += 1;
   if (enableRoutineVisibilityFilter && state.hideRoutineExecutions) count += 1;
   return count;
 }
