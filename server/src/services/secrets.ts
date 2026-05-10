@@ -13,6 +13,9 @@ import {
   routines,
   secretAccessEvents,
 } from "@paperclipai/db";
+import { oauthConnections } from "@paperclipai/db/schema/oauth";
+import type { ProviderRegistry } from "../oauth/registry.js";
+import type { refreshConnection as refreshConnectionImpl, RefreshDeps } from "../oauth/refresh.js";
 import type {
   AgentEnvConfig,
   CompanySecretBindingTarget,
@@ -166,7 +169,8 @@ async function cleanupPreparedProviderWrite(input: {
 
 type CanonicalEnvBinding =
   | { type: "plain"; value: string }
-  | { type: "secret_ref"; secretId: string; version: number | "latest" };
+  | { type: "secret_ref"; secretId: string; version: number | "latest" }
+  | { type: "oauth_token"; connectionId: string };
 
 type SecretConsumerContext = {
   consumerType: SecretBindingTargetType;
@@ -228,11 +232,7 @@ function canonicalizeBinding(binding: EnvBinding): CanonicalEnvBinding {
     return { type: "plain", value: String(binding.value) };
   }
   if (binding.type === "oauth_token") {
-    // Stub: oauth_token binding resolution is wired up in Task 29 of the
-    // OAuth backbone plan (lazy refresh + connection lookup + decrypted
-    // access token return). Until then, surface a clear error so callers
-    // know this code path is intentionally unimplemented.
-    throw new Error("oauth_token binding resolution not yet implemented (Task 29)");
+    return { type: "oauth_token", connectionId: binding.connectionId };
   }
   return {
     type: "secret_ref",
@@ -260,7 +260,16 @@ function assertSelectableProviderConfig(config: {
   }
 }
 
-export function secretService(db: Db) {
+export interface SecretServiceOAuthDeps {
+  registry: ProviderRegistry;
+  // refreshFn is wired late to break the secrets <-> refresh circular import.
+  // app.ts injects the production `refreshConnection` from `../oauth/refresh.js`
+  // here; tests can supply a stub. When undefined, the resolver throws if it
+  // hits a stale oauth_token branch that requires refresh.
+  refreshFn?: (deps: RefreshDeps) => ReturnType<typeof refreshConnectionImpl>;
+}
+
+export function secretService(db: Db, oauthDeps?: SecretServiceOAuthDeps) {
   type NormalizeEnvOptions = {
     strictMode?: boolean;
     fieldPath?: string;
@@ -615,6 +624,19 @@ export function secretService(db: Db) {
           throw unprocessable(`Refusing to persist redacted placeholder for key: ${key}`);
         }
         normalized[key] = binding;
+        continue;
+      }
+
+      if (binding.type === "oauth_token") {
+        // Persistence path: oauth_token bindings reference an oauth_connections
+        // row, not a companySecrets row. Existence is validated at runtime by
+        // resolveAdapterConfigForRuntime; here we just preserve the binding
+        // shape so it round-trips through persistence.
+        normalized[key] = {
+          type: "oauth_token",
+          connectionId: binding.connectionId,
+          field: "access",
+        };
         continue;
       }
 
@@ -2163,7 +2185,7 @@ export function secretService(db: Db) {
         const binding = canonicalizeBinding(parsed.data as EnvBinding);
         if (binding.type === "plain") {
           resolved[key] = binding.value;
-        } else {
+        } else if (binding.type === "secret_ref") {
           const secretResolution = await resolveSecretValueInternal(
             companyId,
             binding.secretId,
@@ -2173,6 +2195,13 @@ export function secretService(db: Db) {
           resolved[key] = secretResolution.value;
           manifest.push(secretResolution.manifestEntry);
           secretKeys.add(key);
+        } else {
+          // oauth_token bindings are not expected on project env (which only
+          // accepts secret_ref / plain via the project secrets API). Surface a
+          // clear error rather than silently dropping or falling through.
+          throw unprocessable(
+            `oauth_token bindings are not supported in project env (key: ${key})`,
+          );
         }
       }
       return { env: resolved, secretKeys, manifest };
@@ -2182,17 +2211,33 @@ export function secretService(db: Db) {
       companyId: string,
       adapterConfig: Record<string, unknown>,
       context?: Omit<SecretConsumerContext, "configPath">,
-    ): Promise<{ config: Record<string, unknown>; secretKeys: Set<string>; manifest: RuntimeSecretManifestEntry[] }> => {
+    ): Promise<{
+      config: Record<string, unknown>;
+      secretKeys: Set<string>;
+      manifest: RuntimeSecretManifestEntry[];
+      oauthConnectionIds: string[];
+    }> => {
       const resolved = { ...adapterConfig };
       const secretKeys = new Set<string>();
       const manifest: RuntimeSecretManifestEntry[] = [];
+      const oauthConnectionIds = new Set<string>();
       if (!Object.prototype.hasOwnProperty.call(adapterConfig, "env")) {
-        return { config: resolved, secretKeys, manifest };
+        return {
+          config: resolved,
+          secretKeys,
+          manifest,
+          oauthConnectionIds: Array.from(oauthConnectionIds),
+        };
       }
       const record = asRecord(adapterConfig.env);
       if (!record) {
         resolved.env = {};
-        return { config: resolved, secretKeys, manifest };
+        return {
+          config: resolved,
+          secretKeys,
+          manifest,
+          oauthConnectionIds: Array.from(oauthConnectionIds),
+        };
       }
       const env: Record<string, string> = {};
       for (const [key, rawBinding] of Object.entries(record)) {
@@ -2206,7 +2251,7 @@ export function secretService(db: Db) {
         const binding = canonicalizeBinding(parsed.data as EnvBinding);
         if (binding.type === "plain") {
           env[key] = binding.value;
-        } else {
+        } else if (binding.type === "secret_ref") {
           const secretResolution = await resolveSecretValueInternal(
             companyId,
             binding.secretId,
@@ -2216,10 +2261,67 @@ export function secretService(db: Db) {
           env[key] = secretResolution.value;
           manifest.push(secretResolution.manifestEntry);
           secretKeys.add(key);
+        } else {
+          // oauth_token binding
+          if (!oauthDeps) {
+            throw unprocessable(
+              "oauth_token bindings require server OAuth wiring (registry not configured)",
+            );
+          }
+          const conn = await db.query.oauthConnections.findFirst({
+            where: and(
+              eq(oauthConnections.id, binding.connectionId),
+              eq(oauthConnections.companyId, companyId),
+            ),
+          });
+          if (!conn) {
+            const e = new Error(
+              `oauth_connection_missing: ${binding.connectionId}`,
+            ) as Error & { errorCode: string };
+            e.errorCode = "oauth_connection_missing";
+            throw e;
+          }
+          if (conn.status === "revoked") {
+            const e = new Error(
+              `oauth_connection_revoked: ${conn.providerId}`,
+            ) as Error & { errorCode: string };
+            e.errorCode = "oauth_connection_revoked";
+            throw e;
+          }
+          if (conn.status === "error") {
+            const e = new Error(
+              `oauth_provider_unavailable: ${conn.providerId}`,
+            ) as Error & { errorCode: string };
+            e.errorCode = "oauth_provider_unavailable";
+            throw e;
+          }
+          // Lazy refresh wired in T30. The resolver passes undefined context to
+          // resolveSecretValueInternal so the binding-context check (which
+          // expects a companySecretBindings row) is skipped — the OAuth
+          // connection itself is the consumer record for these secrets.
+          const secretResolution = await resolveSecretValueInternal(
+            companyId,
+            conn.accessTokenSecretId,
+            "latest",
+            undefined,
+          );
+          env[key] = secretResolution.value;
+          manifest.push({
+            ...secretResolution.manifestEntry,
+            configPath: `env.${key}`,
+            envKey: key,
+          });
+          secretKeys.add(key);
+          oauthConnectionIds.add(conn.id);
         }
       }
       resolved.env = env;
-      return { config: resolved, secretKeys, manifest };
+      return {
+        config: resolved,
+        secretKeys,
+        manifest,
+        oauthConnectionIds: Array.from(oauthConnectionIds),
+      };
     },
   };
   return api;

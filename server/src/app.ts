@@ -49,6 +49,7 @@ import { oauthRoutes } from "./routes/oauth.js";
 import { oauthCallbackRoute } from "./routes/oauth-callback.js";
 import { oauthMarkRevokedRoute } from "./routes/oauth-mark-revoked.js";
 import { startRefreshWorker } from "./oauth/refresh-worker.js";
+import { refreshConnection as refreshConnectionImpl } from "./oauth/refresh.js";
 import { startStateSweeper } from "./oauth/state-sweeper.js";
 import { secretService } from "./services/index.js";
 import { applyUiBranding } from "./ui-branding.js";
@@ -331,7 +332,10 @@ export async function createApp(
   const oauthPublicUrl =
     process.env.PAPERCLIP_PUBLIC_URL ?? `http://localhost:${opts.serverPort}`;
 
-  const oauthSecretService = secretService(db);
+  const oauthSecretService = secretService(db, {
+    registry: oauthRegistry,
+    refreshFn: refreshConnectionImpl,
+  });
   const oauthLimiter = createSlidingWindowLimiter({ limit: 60, windowMs: 60_000 });
 
   api.use(
@@ -531,6 +535,14 @@ export async function createApp(
   process.once("beforeExit", () => {
     void flushPluginLogBuffer();
   });
+
+  // Expose the OAuth registry on `app.locals` so the scheduler in index.ts
+  // (which constructs a heartbeatService outside this function) can build the
+  // same oauthDeps and reuse a single registry. Late-registered plugin
+  // contributions land on the same object, so the runtime resolver and the
+  // dispatcher always see the same provider set.
+  (app as unknown as { locals: Record<string, unknown> }).locals.oauthRegistry =
+    oauthRegistry;
 
   return app;
 }

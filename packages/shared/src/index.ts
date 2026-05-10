@@ -852,6 +852,7 @@ export {
   type AddApprovalComment,
   envBindingPlainSchema,
   envBindingSecretRefSchema,
+  envBindingOAuthTokenSchema,
   envBindingSchema,
   envConfigSchema,
   createSecretSchema,
