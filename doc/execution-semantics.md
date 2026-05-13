@@ -196,6 +196,14 @@ Use an issue-backed recovery action only when the recovery is genuinely independ
 
 A comment or system notice can be evidence for a recovery action, but it is not a recovery action by itself. Comment-only recovery is not a healthy liveness path because it does not define a typed owner, wake or monitor policy, retry bound, timeout, escalation path, or resolution outcome.
 
+#### Recovery action freshness
+
+Source-scoped recovery actions are snapshots of the source issue's liveness state at the time the action was opened. They must be revalidated after newer durable source activity, including source issue status changes, assignee changes, blocker changes, execution policy or monitor changes, document or work-product updates that define a valid waiting path, and structured resume or disposition updates.
+
+When newer source activity restores a valid live or waiting path, the recovery action is stale and should be folded through the explicit recovery lifecycle instead of being hidden or deleted. Folding means resolving or cancelling the recovery action with a resolution outcome and note that preserve the audit trail.
+
+Plain comments alone do not make a recovery action stale. A comment can provide evidence, but the recovery action should remain visible when the source issue is still stalled and the comment does not create a valid action-path primitive such as a wake, monitor, interaction, approval, blocker, human owner, execution participant, terminal disposition, or delegated follow-up.
+
 ### Agent-assigned `todo`
 
 This is dispatch state: ready to start, not yet actively claimed.

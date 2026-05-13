@@ -5,9 +5,13 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   agents,
+  agentWakeupRequests,
   activityLog,
   companies,
   createDb,
+  environmentLeases,
+  environments,
+  heartbeatRuns,
   issueComments,
   issueRecoveryActions,
   issueRelations,
@@ -130,6 +134,10 @@ describeEmbeddedPostgres("issue recovery actions", () => {
   afterEach(async () => {
     await db.delete(issueRecoveryActions);
     await db.delete(issueComments);
+    await db.delete(environmentLeases);
+    await db.delete(heartbeatRuns);
+    await db.delete(agentWakeupRequests);
+    await db.delete(environments);
     await db.delete(activityLog);
     await db.delete(issues);
     await db.delete(agents);
@@ -547,7 +555,10 @@ describeEmbeddedPostgres("issue recovery actions", () => {
 
   it("marks a recovery action stale when a blocked source issue is manually moved to todo", async () => {
     const { companyId, managerId, sourceIssueId } = await seedCompany();
-    await db.update(issues).set({ status: "blocked" }).where(eq(issues.id, sourceIssueId));
+    await db
+      .update(issues)
+      .set({ status: "blocked", assigneeAgentId: null, assigneeUserId: "board-user" })
+      .where(eq(issues.id, sourceIssueId));
     const recoveryActionSvc = issueRecoveryActionService(db);
     const action = await recoveryActionSvc.upsertSourceScoped({
       companyId,
@@ -596,6 +607,141 @@ describeEmbeddedPostgres("issue recovery actions", () => {
     expect(activityRows.map((row) => row.action)).toEqual(
       expect.arrayContaining(["issue.updated", "issue.recovery_action_resolved"]),
     );
+    expect(activityRows.find((row) => row.action === "issue.recovery_action_resolved")?.details).toMatchObject({
+      source: "source_revalidation",
+      trigger: "issue_update",
+    });
+  });
+
+  it("folds stale recovery during read projection after the source issue reaches done", async () => {
+    const { companyId, managerId, sourceIssueId } = await seedCompany();
+    const recoveryActionSvc = issueRecoveryActionService(db);
+    const action = await recoveryActionSvc.upsertSourceScoped({
+      companyId,
+      sourceIssueId,
+      kind: "issue_graph_liveness",
+      ownerType: "agent",
+      ownerAgentId: managerId,
+      cause: "issue_graph_liveness",
+      fingerprint: "graph-liveness:done-projection",
+      evidence: { latestIssueStatus: "in_progress" },
+      nextAction: "Restore a live execution path.",
+      wakePolicy: { type: "manual" },
+    });
+    await db.update(issues).set({ status: "done" }).where(eq(issues.id, sourceIssueId));
+    const app = createApp();
+
+    const detail = await request(app).get(`/api/issues/${sourceIssueId}`).expect(200);
+
+    expect(detail.body).toMatchObject({
+      id: sourceIssueId,
+      status: "done",
+      activeRecoveryAction: null,
+    });
+    const [actionRow] = await db
+      .select()
+      .from(issueRecoveryActions)
+      .where(eq(issueRecoveryActions.id, action.id));
+    expect(actionRow).toMatchObject({
+      status: "cancelled",
+      outcome: "cancelled",
+      resolutionNote: "Recovery action became stale because the source issue reached done.",
+    });
+    expect(actionRow?.resolvedAt).toBeTruthy();
+
+    const activityRows = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.entityId, sourceIssueId));
+    expect(activityRows.find((row) => row.action === "issue.recovery_action_resolved")?.details).toMatchObject({
+      source: "source_revalidation",
+      trigger: "read_projection",
+      recoveryActionId: action.id,
+    });
+  });
+
+  it("keeps active recovery visible when a plain comment does not create a live path", async () => {
+    const { companyId, managerId, sourceIssueId } = await seedCompany();
+    await db
+      .update(issues)
+      .set({ assigneeAgentId: null, assigneeUserId: "board-user" })
+      .where(eq(issues.id, sourceIssueId));
+    const recoveryActionSvc = issueRecoveryActionService(db);
+    const action = await recoveryActionSvc.upsertSourceScoped({
+      companyId,
+      sourceIssueId,
+      kind: "issue_graph_liveness",
+      ownerType: "agent",
+      ownerAgentId: managerId,
+      cause: "issue_graph_liveness",
+      fingerprint: "graph-liveness:plain-comment",
+      evidence: { latestIssueStatus: "in_progress" },
+      nextAction: "Restore a live execution path.",
+      wakePolicy: { type: "manual" },
+    });
+    const app = createApp();
+
+    await request(app)
+      .post(`/api/issues/${sourceIssueId}/comments`)
+      .send({ body: "I am looking at this, but not changing the disposition." })
+      .expect(201);
+
+    expect(await recoveryActionSvc.getActiveForIssue(companyId, sourceIssueId)).toMatchObject({
+      id: action.id,
+      status: "active",
+    });
+    const detail = await request(app).get(`/api/issues/${sourceIssueId}`).expect(200);
+    expect(detail.body.activeRecoveryAction).toMatchObject({ id: action.id });
+  });
+
+  it("folds stale recovery when a structured resume comment restores todo dispatch", async () => {
+    const { companyId, managerId, sourceIssueId } = await seedCompany();
+    await db
+      .update(issues)
+      .set({ status: "blocked", assigneeAgentId: null, assigneeUserId: "board-user" })
+      .where(eq(issues.id, sourceIssueId));
+    const recoveryActionSvc = issueRecoveryActionService(db);
+    const action = await recoveryActionSvc.upsertSourceScoped({
+      companyId,
+      sourceIssueId,
+      kind: "issue_graph_liveness",
+      ownerType: "agent",
+      ownerAgentId: managerId,
+      cause: "issue_graph_liveness",
+      fingerprint: "graph-liveness:resume-comment",
+      evidence: { latestIssueStatus: "blocked" },
+      nextAction: "Restore a live execution path.",
+      wakePolicy: { type: "manual" },
+    });
+    const app = createApp();
+
+    await request(app)
+      .post(`/api/issues/${sourceIssueId}/comments`)
+      .send({ body: "Resume this now.", resume: true })
+      .expect(201);
+
+    const [sourceIssue] = await db.select().from(issues).where(eq(issues.id, sourceIssueId));
+    expect(sourceIssue?.status).toBe("todo");
+    const [actionRow] = await db
+      .select()
+      .from(issueRecoveryActions)
+      .where(eq(issueRecoveryActions.id, action.id));
+    expect(actionRow).toMatchObject({
+      status: "cancelled",
+      outcome: "cancelled",
+      resolutionNote: "Recovery action became stale because the source issue was manually moved from blocked to todo.",
+    });
+    expect(await recoveryActionSvc.getActiveForIssue(companyId, sourceIssueId)).toBeNull();
+
+    const activityRows = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.entityId, sourceIssueId));
+    expect(activityRows.find((row) => row.action === "issue.recovery_action_resolved")?.details).toMatchObject({
+      source: "source_revalidation",
+      trigger: "comment",
+      recoveryActionId: action.id,
+    });
   });
 
   it("rejects blocked recovery resolution when the source issue has no first-class blockers", async () => {
