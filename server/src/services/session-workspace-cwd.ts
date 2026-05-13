@@ -3,8 +3,13 @@ const SESSION_CWD_SYSTEM_ROOTS = new Set([
   "/tmp",
   "/var",
   "/var/tmp",
+  "/var/run",
   "/usr",
   "/etc",
+  "/proc",
+  "/sys",
+  "/dev",
+  "/run",
   "/private",
   "/private/tmp",
 ]);
