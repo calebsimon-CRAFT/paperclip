@@ -215,10 +215,10 @@ function FileDiffPanel({
 
   return (
     <div className="space-y-3">
-      {file.patches.map((patch) => {
+      {file.patches.map((patch, index) => {
         const patchWarning = patchWarningText(patch);
         return (
-          <div key={patch.kind} className="overflow-hidden border border-border bg-background">
+          <div key={`${patch.kind}:${index}`} className="overflow-hidden border border-border bg-background">
             {file.patches.length > 1 ? (
               <div className="flex items-center gap-2 border-b border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">{patchKindLabel(patch.kind)}</span>
@@ -453,9 +453,9 @@ export function ChangesTab({ context }: PluginDetailTabProps) {
               Files
             </div>
             <div key="list" className="max-h-[70vh] overflow-auto lg:max-h-none lg:flex-1">
-              {files.map((file) => (
+              {files.map((file, index) => (
                 <FileRow
-                  key={file.path}
+                  key={`${file.path}:${index}`}
                   file={file}
                   active={file.path === selectedFile?.path}
                   expanded={expandedFiles.has(file.path)}
@@ -474,9 +474,9 @@ export function ChangesTab({ context }: PluginDetailTabProps) {
             onScroll={handleDiffScroll}
           >
             {files
-              .map((file) => (
+              .map((file, index) => (
                 <section
-                  key={file.path}
+                  key={`${file.path}:${index}`}
                   ref={setFileSectionRef(file.path)}
                   className={file.path === selectedFile?.path ? "scroll-mt-2" : undefined}
                 >

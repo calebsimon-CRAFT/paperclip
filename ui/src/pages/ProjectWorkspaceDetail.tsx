@@ -278,6 +278,16 @@ export function ProjectWorkspaceDetail() {
     companyId: project?.companyId ?? null,
     enabled: Boolean(project?.companyId),
   });
+  const {
+    slots: legacyWorkspacePluginDetailSlots,
+    isLoading: legacyWorkspacePluginDetailSlotsLoading,
+    errorMessage: legacyWorkspacePluginDetailSlotsError,
+  } = usePluginSlots({
+    slotTypes: ["detailTab"],
+    entityType: "execution_workspace",
+    companyId: project?.companyId ?? null,
+    enabled: Boolean(project?.companyId),
+  });
   const pluginTabItems = useMemo(
     () => pluginDetailSlots.map((slot) => ({
       value: `plugin:${slot.pluginKey}:${slot.id}`,
@@ -286,7 +296,19 @@ export function ProjectWorkspaceDetail() {
     })),
     [pluginDetailSlots],
   );
-  const changesPluginTab = pluginTabItems.find((item) => item.value === WORKSPACE_CHANGES_PLUGIN_TAB) ?? null;
+  const legacyWorkspacePluginTabItems = useMemo(
+    () => legacyWorkspacePluginDetailSlots.map((slot) => ({
+      value: `plugin:${slot.pluginKey}:${slot.id}`,
+      label: slot.displayName,
+      slot,
+    })),
+    [legacyWorkspacePluginDetailSlots],
+  );
+  const changesPluginTab = pluginTabItems.find((item) => item.value === WORKSPACE_CHANGES_PLUGIN_TAB)
+    ?? legacyWorkspacePluginTabItems.find((item) => item.value === WORKSPACE_CHANGES_PLUGIN_TAB)
+    ?? null;
+  const changesPluginTabLoading = pluginDetailSlotsLoading || legacyWorkspacePluginDetailSlotsLoading;
+  const changesPluginTabError = pluginDetailSlotsError ?? legacyWorkspacePluginDetailSlotsError;
 
   useEffect(() => {
     if (!project?.companyId || project.companyId === selectedCompanyId) return;
@@ -726,9 +748,9 @@ export function ProjectWorkspaceDetail() {
           />
         ) : (
           <div className="rounded-lg border border-dashed border-border bg-background px-4 py-8 text-sm text-muted-foreground">
-            {pluginDetailSlotsError
-              ? `Workspace changes failed to load: ${pluginDetailSlotsError}`
-              : pluginDetailSlotsLoading
+            {changesPluginTabError
+              ? `Workspace changes failed to load: ${changesPluginTabError}`
+              : changesPluginTabLoading
                 ? "Loading workspace changes..."
                 : "Workspace changes are not available."}
           </div>

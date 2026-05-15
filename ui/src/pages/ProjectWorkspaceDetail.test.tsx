@@ -55,20 +55,23 @@ vi.mock("@/plugins/slots", () => ({
   },
   usePluginSlots: (filters: unknown) => {
     mockUsePluginSlots(filters);
+    const entityType = (filters as { entityType?: string }).entityType;
     return {
-      slots: [
-        {
-          id: "workspace-changes-tab",
-          type: "detailTab",
-          displayName: "Changes",
-          exportName: "WorkspaceChangesTab",
-          entityTypes: ["project_workspace"],
-          pluginId: "plugin-1",
-          pluginKey: "paperclip.workspace-diff",
-          pluginDisplayName: "Workspace Diff",
-          pluginVersion: "0.1.0",
-        },
-      ],
+      slots: entityType === "execution_workspace"
+        ? [
+          {
+            id: "workspace-changes-tab",
+            type: "detailTab",
+            displayName: "Changes",
+            exportName: "WorkspaceChangesTab",
+            entityTypes: ["execution_workspace"],
+            pluginId: "plugin-1",
+            pluginKey: "paperclip.workspace-diff",
+            pluginDisplayName: "Workspace Diff",
+            pluginVersion: "0.1.0",
+          },
+        ]
+        : [],
       isLoading: false,
       errorMessage: null,
     };
