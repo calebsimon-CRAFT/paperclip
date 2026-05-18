@@ -1744,6 +1744,7 @@ export interface PluginAuthorizationClient {
       actorId?: string;
       entityType?: string;
       entityId?: string;
+      decision?: string;
       limit?: number;
       offset?: number;
     }): Promise<PluginAuthorizationAuditEntry[]>;

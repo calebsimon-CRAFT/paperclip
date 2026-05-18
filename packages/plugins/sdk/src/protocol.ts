@@ -1229,6 +1229,7 @@ export interface WorkerToHostMethods {
       actorId?: string;
       entityType?: string;
       entityId?: string;
+      decision?: string;
       limit?: number;
       offset?: number;
     },

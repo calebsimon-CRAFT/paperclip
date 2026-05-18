@@ -120,4 +120,47 @@ describeEmbeddedPostgres("plugin access and authorization host services", () => 
     expect("tokenHash" in listed.invites[0]!).toBe(false);
     services.dispose();
   });
+
+  it("filters authorization audit entries by allow or deny decision details", async () => {
+    const company = await createCompany(db, "PAU");
+    const services = buildHostServices(db, "plugin-record-id", "paperclip-ee", createEventBusStub());
+    await db.insert(activityLog).values([
+      {
+        companyId: company.id,
+        actorType: "agent",
+        actorId: "agent-1",
+        action: "authorization.assignment_preview",
+        entityType: "issue",
+        entityId: "issue-1",
+        details: { decision: "allow", secret: "do-not-leak" },
+      },
+      {
+        companyId: company.id,
+        actorType: "agent",
+        actorId: "agent-1",
+        action: "authorization.assignment_preview",
+        entityType: "issue",
+        entityId: "issue-2",
+        details: { reason: "deny_scope" },
+      },
+    ]);
+
+    const allowed = await services.authorization.searchAudit({
+      companyId: company.id,
+      action: "authorization.assignment_preview",
+      decision: "allow",
+    });
+    const denied = await services.authorization.searchAudit({
+      companyId: company.id,
+      action: "authorization.assignment_preview",
+      decision: "deny",
+    });
+
+    expect(allowed).toHaveLength(1);
+    expect(allowed[0]!.entityId).toBe("issue-1");
+    expect(allowed[0]!.details).toMatchObject({ decision: "allow", secret: "***REDACTED***" });
+    expect(denied).toHaveLength(1);
+    expect(denied[0]!.entityId).toBe("issue-2");
+    services.dispose();
+  });
 });

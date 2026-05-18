@@ -2483,7 +2483,27 @@ export function buildHostServices(
           .orderBy(desc(activityLog.createdAt))
           .limit(limit)
           .offset(offset);
-        return rows.map((row) => ({
+        const decisionFilter = typeof params.decision === "string" && params.decision.trim()
+          ? params.decision.trim().toLowerCase()
+          : null;
+        const filteredRows = decisionFilter
+          ? rows.filter((row) => {
+            const details = row.details && typeof row.details === "object"
+              ? row.details as Record<string, unknown>
+              : {};
+            const decision = typeof details.decision === "string"
+              ? details.decision
+              : typeof details.reason === "string" && details.reason.startsWith("allow_")
+                ? "allow"
+                : typeof details.reason === "string" && details.reason.startsWith("deny_")
+                  ? "deny"
+                  : typeof details.allowed === "boolean"
+                    ? details.allowed ? "allow" : "deny"
+                    : "";
+            return decision.toLowerCase() === decisionFilter;
+          })
+          : rows;
+        return filteredRows.map((row) => ({
           ...row,
           details: row.details && typeof row.details === "object"
             ? sanitizeRecord(row.details)
