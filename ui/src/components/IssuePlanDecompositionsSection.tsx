@@ -55,7 +55,7 @@ export function IssuePlanDecompositionsSection({
       <ul className="space-y-3">
         {items.map((record) => {
           const requested = record.requestedChildCount ?? 0;
-          const created = record.childIssues?.length ?? 0;
+          const created = record.childIssueIds?.length ?? 0;
           const ownerName = record.ownerAgentId
             ? agentMap?.get(record.ownerAgentId)?.name ?? "agent"
             : null;

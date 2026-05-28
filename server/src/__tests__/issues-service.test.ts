@@ -3456,6 +3456,7 @@ describeEmbeddedPostgres("accepted plan decomposition", () => {
       actorAgentId: assigneeAgentId,
     });
 
+    expect(first.decomposition).not.toHaveProperty("requestedChildren");
     expect(first.childIssueIds).toHaveLength(2);
     expect(first.newlyCreatedIssues).toHaveLength(2);
     expect(first.decomposition.status).toBe("completed");

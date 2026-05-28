@@ -897,8 +897,8 @@ describe("IssueDetail", () => {
         acceptedInteractionId: null,
         status: "completed",
         requestFingerprint: "fingerprint-1",
-        requestedChildCount: 1,
-        childIssueIds: ["issue-2"],
+        requestedChildCount: 2,
+        childIssueIds: ["issue-2", "issue-3"],
         childIssues: [
           {
             id: "issue-2",
@@ -932,6 +932,7 @@ describe("IssueDetail", () => {
 
     expect(container.textContent).toContain("Plan decomposition");
     expect(container.textContent).toContain("Plan revision 2");
+    expect(container.textContent).toContain("2 of 2 child issues created");
     expect(container.textContent).toContain("First child issue");
     expect(mockIssuesApi.listAcceptedPlanDecompositions).toHaveBeenCalledWith("issue-1");
   });
