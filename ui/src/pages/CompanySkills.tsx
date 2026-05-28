@@ -275,6 +275,10 @@ function skillRoute(skillId: string, filePath?: string | null) {
   return filePath ? `/skills/${skillId}/files/${encodeSkillFilePath(filePath)}` : `/skills/${skillId}`;
 }
 
+function catalogSkillRoute(catalogRef: string) {
+  return `/skills?view=catalog&catalog=${encodeURIComponent(catalogRef)}`;
+}
+
 function parentDirectoryPaths(filePath: string) {
   const segments = filePath.split("/").filter(Boolean);
   const parents: string[] = [];
@@ -567,14 +571,26 @@ function CatalogList({
   categoryFilter,
   catalogFilter,
   selectedCatalogRef,
+  selectedPath,
+  expandedSkillId,
+  expandedDirs,
   onSelect,
+  onSelectPath,
+  onToggleSkill,
+  onToggleDir,
 }: {
   skills: CatalogSkill[];
   kindFilter: "all" | "bundled" | "optional";
   categoryFilter: string;
   catalogFilter: string;
   selectedCatalogRef: string | null;
+  selectedPath: string;
+  expandedSkillId: string | null;
+  expandedDirs: Record<string, Set<string>>;
   onSelect: (catalogRef: string) => void;
+  onSelectPath: (catalogRef: string, path: string) => void;
+  onToggleSkill: (catalogRef: string) => void;
+  onToggleDir: (catalogRef: string, path: string) => void;
 }) {
   const lowered = catalogFilter.trim().toLowerCase();
   const filtered = skills.filter((skill) => {
@@ -598,18 +614,63 @@ function CatalogList({
 
   function renderRow(skill: CatalogSkill) {
     const isSelected = selectedCatalogRef === skill.id || selectedCatalogRef === skill.key;
+    const expanded = expandedSkillId === skill.id;
+    const tree = buildTree(skill.files.map((file) => ({
+      path: file.path,
+      kind: file.kind,
+    })));
     return (
-      <button
-        key={skill.id}
-        type="button"
-        onClick={() => onSelect(skill.id)}
-        className={cn(
-          "w-full border-b border-border px-3 py-2 text-left hover:bg-accent/30",
-          isSelected && "bg-accent/40",
-        )}
-      >
-        <span className="block truncate text-[13px] font-medium leading-5">{skill.name}</span>
-      </button>
+      <div key={skill.id} className="border-b border-border">
+        <div
+          className={cn(
+            "group grid grid-cols-[minmax(0,1fr)_2.25rem] items-center gap-x-1 px-3 py-1.5 hover:bg-accent/30",
+            isSelected && "text-foreground",
+          )}
+        >
+          <Link
+            to={catalogSkillRoute(skill.id)}
+            className="flex min-w-0 items-center self-stretch pr-2 text-left no-underline"
+            onClick={() => onSelect(skill.id)}
+          >
+            <span className="flex min-w-0 items-center gap-2 self-center">
+              <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground opacity-75 transition-opacity group-hover:opacity-100">
+                <Boxes className={cn("h-3.5 w-3.5", skill.kind === "optional" && "opacity-70")} aria-hidden="true" />
+              </span>
+              <span className="min-w-0 overflow-hidden text-[13px] font-medium leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]">
+                {skill.name}
+              </span>
+            </span>
+          </Link>
+          <button
+            type="button"
+            className="flex h-9 w-9 shrink-0 items-center justify-center self-center rounded-sm text-muted-foreground opacity-80 transition-[background-color,color,opacity] hover:bg-accent hover:text-foreground group-hover:opacity-100"
+            onClick={() => onToggleSkill(skill.id)}
+            aria-label={expanded ? `Collapse ${skill.name}` : `Expand ${skill.name}`}
+          >
+            {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          </button>
+        </div>
+        <div
+          aria-hidden={!expanded}
+          className={cn(
+            "grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]",
+            expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+          )}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <SkillTree
+              nodes={tree}
+              skillId={skill.id}
+              selectedPath={isSelected ? selectedPath : "SKILL.md"}
+              expandedDirs={expandedDirs[skill.id] ?? new Set<string>()}
+              onToggleDir={(path) => onToggleDir(skill.id, path)}
+              onSelectPath={(path) => onSelectPath(skill.id, path)}
+              fileHref={(skillId) => catalogSkillRoute(skillId)}
+              depth={1}
+            />
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -643,7 +704,6 @@ function CatalogDetailPane({
   installedSkillId,
   fileQuery,
   selectedPath,
-  onSelectPath,
   onInstall,
   onUpdate,
   onOpenInstalled,
@@ -656,7 +716,6 @@ function CatalogDetailPane({
   installedSkillId: string | null;
   fileQuery: { data: CatalogSkillFileDetail | undefined; isLoading: boolean; error: unknown };
   selectedPath: string;
-  onSelectPath: (path: string) => void;
   onInstall: () => void;
   onUpdate: () => void;
   onOpenInstalled: (skillId: string) => void;
@@ -666,11 +725,6 @@ function CatalogDetailPane({
     return <EmptyState icon={Boxes} message="Select a catalog skill to inspect." />;
   }
 
-  const fileEntries: CompanySkillFileInventoryEntry[] = skill.files.map((file) => ({
-    path: file.path,
-    kind: file.kind,
-  }));
-  const tree = buildTree(fileEntries);
   const installedHash = installedSkill
     ? readonlyMetadataValue((installedSkill as CompanySkillListItem & { metadata?: Record<string, unknown> | null }).metadata ?? null, "originHash")
     : null;
@@ -787,35 +841,24 @@ function CatalogDetailPane({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-0 md:grid-cols-[16rem_minmax(0,1fr)]">
-        <div className="border-b border-border md:border-b-0 md:border-r">
-          <div className="border-b border-border px-4 py-2 text-xs uppercase tracking-wide text-muted-foreground">
-            Files ({skill.files.length})
-          </div>
-          <SkillTree
-            nodes={tree}
-            skillId={skill.id}
-            selectedPath={selectedPath}
-            expandedDirs={new Set<string>()}
-            onToggleDir={() => {}}
-            onSelectPath={onSelectPath}
-          />
-        </div>
-        <div className="min-h-[400px] px-5 py-5">
-          {fileQuery.isLoading ? (
-            <PageSkeleton variant="detail" />
-          ) : fileQuery.error ? (
-            <div className="text-sm text-destructive">{fileQuery.error instanceof Error ? fileQuery.error.message : "Failed to load file"}</div>
-          ) : !fileQuery.data ? (
-            <div className="text-sm text-muted-foreground">Select a file to inspect.</div>
-          ) : fileQuery.data.markdown ? (
-            <MarkdownBody softBreaks={false} linkIssueReferences={false}>{body}</MarkdownBody>
-          ) : (
-            <pre className="overflow-x-auto whitespace-pre-wrap wrap-break-word border-0 bg-transparent p-0 font-mono text-sm text-foreground">
-              <code>{fileQuery.data.content}</code>
-            </pre>
-          )}
-        </div>
+      <div className="border-b border-border px-5 py-3">
+        <div className="truncate font-mono text-sm">{selectedPath}</div>
+      </div>
+
+      <div className="min-h-[400px] px-5 py-5">
+        {fileQuery.isLoading ? (
+          <PageSkeleton variant="detail" />
+        ) : fileQuery.error ? (
+          <div className="text-sm text-destructive">{fileQuery.error instanceof Error ? fileQuery.error.message : "Failed to load file"}</div>
+        ) : !fileQuery.data ? (
+          <div className="text-sm text-muted-foreground">Select a file to inspect.</div>
+        ) : fileQuery.data.markdown ? (
+          <MarkdownBody softBreaks={false} linkIssueReferences={false}>{body}</MarkdownBody>
+        ) : (
+          <pre className="overflow-x-auto whitespace-pre-wrap wrap-break-word border-0 bg-transparent p-0 font-mono text-sm text-foreground">
+            <code>{fileQuery.data.content}</code>
+          </pre>
+        )}
       </div>
     </div>
   );
@@ -1102,6 +1145,7 @@ function SkillTree({
   expandedDirs,
   onToggleDir,
   onSelectPath,
+  fileHref = (currentSkillId, path) => skillRoute(currentSkillId, path),
   depth = 0,
 }: {
   nodes: SkillTreeNode[];
@@ -1110,6 +1154,7 @@ function SkillTree({
   expandedDirs: Set<string>;
   onToggleDir: (path: string) => void;
   onSelectPath: (path: string) => void;
+  fileHref?: (skillId: string, path: string) => string;
   depth?: number;
 }) {
   return (
@@ -1152,6 +1197,7 @@ function SkillTree({
                   expandedDirs={expandedDirs}
                   onToggleDir={onToggleDir}
                   onSelectPath={onSelectPath}
+                  fileHref={fileHref}
                   depth={depth + 1}
                 />
               )}
@@ -1169,7 +1215,7 @@ function SkillTree({
               node.path === selectedPath && "text-foreground",
             )}
             style={{ paddingInlineStart: `${SKILL_TREE_BASE_INDENT + depth * SKILL_TREE_STEP_INDENT}px` }}
-            to={skillRoute(skillId, node.path)}
+            to={node.path ? fileHref(skillId, node.path) : skillRoute(skillId)}
             onClick={() => node.path && onSelectPath(node.path)}
           >
             <span className="flex h-4 w-4 shrink-0 items-center justify-center">
@@ -1649,6 +1695,8 @@ export function CompanySkills() {
   const [catalogKindFilter, setCatalogKindFilter] = useState<"all" | "bundled" | "optional">("all");
   const [catalogCategoryFilter, setCatalogCategoryFilter] = useState<string>("");
   const [catalogSelectedPath, setCatalogSelectedPath] = useState<string>("SKILL.md");
+  const [expandedCatalogSkillId, setExpandedCatalogSkillId] = useState<string | null>(null);
+  const [expandedCatalogDirs, setExpandedCatalogDirs] = useState<Record<string, Set<string>>>({});
   const [installDialogState, setInstallDialogState] = useState<{
     open: boolean;
     catalogSkill: CatalogSkill | null;
@@ -1688,14 +1736,14 @@ export function CompanySkills() {
     });
   }
 
-  function selectCatalog(catalogRef: string | null) {
+  function selectCatalog(catalogRef: string | null, path = "SKILL.md") {
     setSearchParams((current) => {
       const params = new URLSearchParams(current);
       if (catalogRef) params.set("catalog", catalogRef);
       else params.delete("catalog");
       return params;
     });
-    setCatalogSelectedPath("SKILL.md");
+    setCatalogSelectedPath(path);
   }
 
   useEffect(() => {
@@ -1717,9 +1765,9 @@ export function CompanySkills() {
   }, [routeSkillId, skillsQuery.data]);
 
   useEffect(() => {
-    if (routeSkillId || !selectedSkillId) return;
+    if (activeView !== "installed" || routeSkillId || !selectedSkillId) return;
     navigate(skillRoute(selectedSkillId), { replace: true });
-  }, [navigate, routeSkillId, selectedSkillId]);
+  }, [activeView, navigate, routeSkillId, selectedSkillId]);
 
   const detailQuery = useQuery({
     queryKey: queryKeys.companySkills.detail(selectedCompanyId ?? "", selectedSkillId ?? ""),
@@ -1985,6 +2033,27 @@ export function CompanySkills() {
   const selectedCatalogSkill = catalogDetailQuery.data
     ?? (catalogListQuery.data ?? []).find((entry) => entry.id === selectedCatalogRef || entry.key === selectedCatalogRef)
     ?? null;
+
+  useEffect(() => {
+    setExpandedCatalogSkillId(selectedCatalogSkill?.id ?? null);
+  }, [selectedCatalogSkill?.id]);
+
+  useEffect(() => {
+    if (!selectedCatalogSkill || catalogSelectedPath === "SKILL.md") return;
+    const parents = parentDirectoryPaths(catalogSelectedPath);
+    if (parents.length === 0) return;
+    setExpandedCatalogDirs((current) => {
+      const next = new Set(current[selectedCatalogSkill.id] ?? []);
+      let changed = false;
+      for (const parent of parents) {
+        if (!next.has(parent)) {
+          next.add(parent);
+          changed = true;
+        }
+      }
+      return changed ? { ...current, [selectedCatalogSkill.id]: next } : current;
+    });
+  }, [catalogSelectedPath, selectedCatalogSkill]);
 
   const sourceCounts = useMemo<Record<SourceFilter, number>>(() => {
     const counts: Record<SourceFilter, number> = { all: installedSkills.length, company: 0, bundled: 0, optional: 0, external: 0 };
@@ -2491,7 +2560,22 @@ export function CompanySkills() {
                   categoryFilter={catalogCategoryFilter}
                   catalogFilter={catalogFilter}
                   selectedCatalogRef={selectedCatalogRef}
+                  selectedPath={catalogSelectedPath}
+                  expandedSkillId={expandedCatalogSkillId}
+                  expandedDirs={expandedCatalogDirs}
                   onSelect={selectCatalog}
+                  onSelectPath={selectCatalog}
+                  onToggleSkill={(catalogRef) =>
+                    setExpandedCatalogSkillId((current) => current === catalogRef ? null : catalogRef)
+                  }
+                  onToggleDir={(catalogRef, path) => {
+                    setExpandedCatalogDirs((current) => {
+                      const next = new Set(current[catalogRef] ?? []);
+                      if (next.has(path)) next.delete(path);
+                      else next.add(path);
+                      return { ...current, [catalogRef]: next };
+                    });
+                  }}
                 />
               )}
             </aside>
@@ -2505,7 +2589,6 @@ export function CompanySkills() {
                 installedSkillId={(selectedCatalogSkill ? installedByKey.get(selectedCatalogSkill.key)?.id : null) ?? null}
                 fileQuery={catalogFileQuery}
                 selectedPath={catalogSelectedPath}
-                onSelectPath={setCatalogSelectedPath}
                 onInstall={() => selectedCatalogSkill && openInstallDialog(selectedCatalogSkill)}
                 onUpdate={() => selectedCatalogSkill && openInstallDialog(selectedCatalogSkill)}
                 onOpenInstalled={(skillId) => {
