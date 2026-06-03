@@ -659,6 +659,11 @@ export function OnboardingWizard() {
   function handleClose() {
     reset();
     closeOnboarding();
+    // On the /onboarding route the wizard is also kept open by the route
+    // itself, so closing the dialog must mark the route dismissed — otherwise
+    // effectiveOnboardingOpen stays true and the wizard re-renders instead of
+    // handing off to the launcher card (PAP-52).
+    setRouteDismissed(true);
   }
 
   function handleLaunchToChat() {
@@ -1000,7 +1005,6 @@ export function OnboardingWizard() {
       open={effectiveOnboardingOpen}
       onOpenChange={(open) => {
         if (!open) {
-          setRouteDismissed(true);
           handleClose();
         }
       }}
