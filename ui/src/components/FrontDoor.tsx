@@ -30,9 +30,9 @@ export function FrontDoor({ onChoose }: FrontDoorProps) {
             <Rocket className="h-6 w-6" />
           </div>
           <div>
-            <h3 className="font-semibold text-sm">Create a new company</h3>
+            <h3 className="font-semibold text-sm">Build a new team</h3>
             <p className="text-xs text-muted-foreground mt-1">
-              Start from scratch with a mission, hire a CEO, and build your team.
+              Begin with a mission, bring on a lead agent, and grow a team of agents to do the work.
             </p>
           </div>
         </button>
@@ -49,9 +49,9 @@ export function FrontDoor({ onChoose }: FrontDoorProps) {
             <Zap className="h-6 w-6" />
           </div>
           <div>
-            <h3 className="font-semibold text-sm">Level up my existing company</h3>
+            <h3 className="font-semibold text-sm">Add agents to your org</h3>
             <p className="text-xs text-muted-foreground mt-1">
-              Add AI-powered agents to your current workflows.
+              Bring AI agents into your existing team or workflows.
             </p>
           </div>
         </button>

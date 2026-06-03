@@ -1077,15 +1077,15 @@ export function OnboardingWizard() {
                       <Sparkles className="h-5 w-5 text-muted-foreground" />
                     </div>
                     <div>
-                      <h3 className="font-medium">Tell us about your company</h3>
+                      <h3 className="font-medium">Tell us about your team</h3>
                       <p className="text-xs text-muted-foreground">
-                        We'll use this to configure your CEO and plan which agents to add.
+                        We'll use this to set up your lead agent and plan which agents to add.
                       </p>
                     </div>
                   </div>
                   <div className="group">
                     <label className={cn("text-xs mb-1 block transition-colors", companyName.trim() ? "text-foreground" : "text-muted-foreground group-focus-within:text-foreground")}>
-                      Company name
+                      Team name
                     </label>
                     <input
                       className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
@@ -1096,7 +1096,7 @@ export function OnboardingWizard() {
                     />
                   </div>
                   <div className="group">
-                    <label className="text-xs text-muted-foreground mb-1 block">What does your company do?</label>
+                    <label className="text-xs text-muted-foreground mb-1 block">What does your team work on?</label>
                     <input
                       className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
                       placeholder="e.g. We create educational YouTube content about AI"
@@ -1176,9 +1176,9 @@ export function OnboardingWizard() {
                       <Building2 className="h-5 w-5 text-muted-foreground" />
                     </div>
                     <div>
-                      <h3 className="font-medium">Name your company</h3>
+                      <h3 className="font-medium">Name your team</h3>
                       <p className="text-xs text-muted-foreground">
-                        What will your company be called?
+                        What should we call your team?
                       </p>
                     </div>
                   </div>
@@ -1191,7 +1191,7 @@ export function OnboardingWizard() {
                           : "text-muted-foreground group-focus-within:text-foreground"
                       )}
                     >
-                      Company name
+                      Team name
                     </label>
                     <input
                       className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
@@ -1238,7 +1238,7 @@ export function OnboardingWizard() {
                     <div>
                       <h3 className="font-medium">Define your mission</h3>
                       <p className="text-xs text-muted-foreground">
-                        Your mission drives everything — your CEO, your hires, and the work <strong>{companyName}</strong> will do.
+                        Your mission guides everything — your lead agent, who you bring on, and the work <strong>{companyName}</strong> takes on.
                       </p>
                     </div>
                   </div>
@@ -1298,7 +1298,7 @@ export function OnboardingWizard() {
                         </label>
                         <textarea
                           className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50 resize-none min-h-[60px]"
-                          placeholder="What is this company trying to achieve?"
+                          placeholder="What is your team trying to achieve?"
                           value={companyGoal}
                           onChange={(e) => setCompanyGoal(e.target.value)}
                           autoFocus
@@ -1329,7 +1329,7 @@ export function OnboardingWizard() {
                     <div className="space-y-3 animate-in fade-in duration-200">
                       <div className="group">
                         <label className="text-xs text-muted-foreground mb-1 block">
-                          What does your company do?
+                          What does your team work on?
                         </label>
                         <input
                           className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
@@ -1810,14 +1810,14 @@ export function OnboardingWizard() {
                   <div>
                     <h3 className="text-xl font-semibold">{companyName} is live!</h3>
                     <p className="text-sm text-muted-foreground mt-2">
-                      Your company has been created. Your CEO is ready.
+                      Your team is set up. {agentName} is ready.
                     </p>
                     <p className="text-sm font-medium mt-1 italic">
                       "{companyGoal}"
                     </p>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Start a conversation with your CEO to discuss strategy and build your team.
+                    Start a conversation with {agentName} to discuss strategy and plan who to bring on.
                   </p>
                 </div>
               )}
@@ -1830,9 +1830,9 @@ export function OnboardingWizard() {
                       <Sparkles className="h-5 w-5 text-muted-foreground" />
                     </div>
                     <div>
-                      <h3 className="font-medium">Chat with your CEO</h3>
+                      <h3 className="font-medium">Chat with your lead agent</h3>
                       <p className="text-xs text-muted-foreground">
-                        Work with your CEO to build a hiring plan for{" "}
+                        Work with {agentName} to plan who to bring onto{" "}
                         <span className="font-medium text-foreground">{companyName}</span>.
                       </p>
                     </div>
@@ -1986,7 +1986,7 @@ export function OnboardingWizard() {
                       {companyName} is ready to go!
                     </h3>
                     <p className="text-sm text-muted-foreground mt-1">
-                      Your CEO is now hiring{" "}
+                      {agentName} is now hiring{" "}
                       {hiringRoles.filter((r) => r.enabled && r.name.trim()).length} roles.
                       Here's what to expect on your dashboard:
                     </p>
@@ -2005,7 +2005,7 @@ export function OnboardingWizard() {
                       <div className="flex-1">
                         <p className="text-sm font-medium">Agents</p>
                         <p className="text-xs text-muted-foreground">
-                          Your roster of agents — running, paused, or in error. New hires from your CEO show up here as they're created.
+                          Your roster of agents — running, paused, or in error. New hires show up here as they're created.
                         </p>
                       </div>
                       <ArrowRight className="h-3.5 w-3.5 text-muted-foreground mt-1 shrink-0" />
@@ -2019,7 +2019,7 @@ export function OnboardingWizard() {
                       <div className="flex-1">
                         <p className="text-sm font-medium">Tasks</p>
                         <p className="text-xs text-muted-foreground">
-                          The work your team is doing. Track tasks moving from todo → in progress → done, including the hires your CEO just queued.
+                          The work your team is doing. Track tasks moving from todo → in progress → done, including the hires {agentName} just queued.
                         </p>
                       </div>
                       <ArrowRight className="h-3.5 w-3.5 text-muted-foreground mt-1 shrink-0" />
@@ -2033,7 +2033,7 @@ export function OnboardingWizard() {
                       <div className="flex-1">
                         <p className="text-sm font-medium">Approvals</p>
                         <p className="text-xs text-muted-foreground">
-                          Pending approvals land here. Your CEO may need your sign-off before agents take sensitive actions or spend over budget.
+                          Pending approvals land here. Your agents may need your sign-off before taking sensitive actions or spending over budget.
                         </p>
                       </div>
                       <ArrowRight className="h-3.5 w-3.5 text-muted-foreground mt-1 shrink-0" />

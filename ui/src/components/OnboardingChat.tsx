@@ -350,7 +350,7 @@ export function OnboardingChat({
               <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
               <div>
                 <p className="text-sm font-medium">
-                  Your CEO has prepared a hiring plan
+                  {agentName} has prepared a hiring plan
                 </p>
                 <p className="text-[11px] text-muted-foreground">
                   Review it, make edits, then approve.
@@ -371,7 +371,7 @@ export function OnboardingChat({
           ref={inputRef}
           type="text"
           className="flex-1 rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
-          placeholder={detectedPlanCommentId ? "Ask your CEO to revise the plan..." : "Message your CEO..."}
+          placeholder={detectedPlanCommentId ? `Ask ${agentName} to revise the plan...` : `Message ${agentName}...`}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -432,13 +432,13 @@ function WelcomeMessage({
             </span>
           </div>
           <p>
-            Hello board! Thank you for appointing me CEO of <strong>{companyName}</strong>.
+            Hi! Thanks for bringing me on to lead <strong>{companyName}</strong>.
           </p>
           <p className="mt-1">
             Our mission is: <em>{companyGoal}</em>
           </p>
           <p className="mt-1">
-            I'm ready to build a hiring plan. Shall I get started?
+            I'm ready to put together a plan for who we should bring on. Want me to get started?
           </p>
         </div>
       )}
