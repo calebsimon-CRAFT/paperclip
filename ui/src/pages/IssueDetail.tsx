@@ -3706,7 +3706,7 @@ export function IssueDetail() {
                 }}
               >
                 <EyeOff className="h-3 w-3" />
-                Hide this Task
+                Hide this task
               </button>
             </PopoverContent>
             </Popover>
