@@ -682,11 +682,10 @@ export const askUserQuestionsResultSchema = z.object({
 });
 
 const requestConfirmationHrefSchema = z.string().trim().min(1).max(2000).refine((value) => {
-  const lower = value.toLowerCase();
-  return !lower.startsWith("javascript:")
-    && !lower.startsWith("data:")
-    && !value.startsWith("//");
-}, "href must not use javascript:, data:, or protocol-relative URLs");
+  if (value.startsWith("#")) return true;
+  if (value.startsWith("/")) return !value.startsWith("//");
+  return /^https?:\/\//i.test(value);
+}, "href must be a root-relative path, same-page fragment, or http(s) URL");
 
 const requestConfirmationTargetBaseSchema = z.object({
   label: z.string().trim().min(1).max(120).nullable().optional(),

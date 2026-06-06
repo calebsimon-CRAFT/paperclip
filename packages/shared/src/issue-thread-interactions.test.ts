@@ -70,29 +70,37 @@ describe("issue thread interaction schemas", () => {
   });
 
   it("accepts custom targets for request_confirmation interactions", () => {
-    const parsed = createIssueThreadInteractionSchema.parse({
-      kind: "request_confirmation",
-      payload: {
-        version: 1,
-        prompt: "Proceed with the external checklist?",
-        target: {
-          type: "custom",
-          key: "external-checklist",
-          revisionId: "checklist-v1",
-          revisionNumber: 1,
-          label: "Checklist v1",
-          href: "https://example.com/checklist",
+    for (const href of [
+      "https://example.com/checklist",
+      "http://example.com/checklist",
+      "/PAP/issues/PAP-123#document-plan",
+      "#document-plan",
+    ]) {
+      const parsed = createIssueThreadInteractionSchema.parse({
+        kind: "request_confirmation",
+        payload: {
+          version: 1,
+          prompt: "Proceed with the external checklist?",
+          target: {
+            type: "custom",
+            key: "external-checklist",
+            revisionId: "checklist-v1",
+            revisionNumber: 1,
+            label: "Checklist v1",
+            href,
+          },
         },
-      },
-    });
+      });
 
-    expect(parsed.kind).toBe("request_confirmation");
-    if (parsed.kind !== "request_confirmation") return;
-    expect(parsed.payload.target).toMatchObject({
-      type: "custom",
-      key: "external-checklist",
-      label: "Checklist v1",
-    });
+      expect(parsed.kind).toBe("request_confirmation");
+      if (parsed.kind !== "request_confirmation") return;
+      expect(parsed.payload.target).toMatchObject({
+        type: "custom",
+        key: "external-checklist",
+        label: "Checklist v1",
+        href,
+      });
+    }
   });
 
   it("rejects unsafe request_confirmation target hrefs", () => {
@@ -110,7 +118,16 @@ describe("issue thread interaction schemas", () => {
       },
     } as const;
 
-    for (const href of ["javascript:alert(1)", "data:text/html,hi", "//evil.example/path"]) {
+    for (const href of [
+      "javascript:alert(1)",
+      "data:text/html,hi",
+      "//evil.example/path",
+      "file:///tmp/x",
+      "mailto:user@example.com",
+      "slack://channel?id=1",
+      "vscode://file/tmp/x",
+      "ftp://example.com/file",
+    ]) {
       expect(() => createIssueThreadInteractionSchema.parse({
         ...base,
         payload: {
@@ -120,7 +137,7 @@ describe("issue thread interaction schemas", () => {
             href,
           },
         },
-      })).toThrow("href must not use javascript:, data:, or protocol-relative URLs");
+      })).toThrow("href must be a root-relative path, same-page fragment, or http(s) URL");
     }
   });
 
@@ -200,6 +217,36 @@ describe("issue thread interaction schemas", () => {
         maxSelected: 1,
       },
     })).toThrow("maxSelected must be greater than or equal to minSelected");
+  });
+
+  it("rejects unsafe request_checkbox_confirmation target hrefs", () => {
+    const base = {
+      kind: "request_checkbox_confirmation",
+      payload: {
+        version: 1,
+        prompt: "Which items should be archived?",
+        options: [{ id: "item-1", label: "Draft report" }],
+        target: {
+          type: "custom",
+          key: "external-checklist",
+          revisionId: "checklist-v1",
+          label: "Checklist v1",
+        },
+      },
+    } as const;
+
+    for (const href of ["file:///tmp/x", "slack://channel?id=1", "vscode://file/tmp/x"]) {
+      expect(() => createIssueThreadInteractionSchema.parse({
+        ...base,
+        payload: {
+          ...base.payload,
+          target: {
+            ...base.payload.target,
+            href,
+          },
+        },
+      })).toThrow("href must be a root-relative path, same-page fragment, or http(s) URL");
+    }
   });
 
   it("accepts empty checkbox selections and rejects duplicate selected option ids", () => {

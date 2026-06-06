@@ -8,6 +8,7 @@ import {
   collectSuggestedTaskClientKeys,
   countSuggestedTaskNodes,
   getCheckboxConfirmationSelectedLabels,
+  getRequestConfirmationTargetHref,
   getQuestionAnswerLabels,
   type AskUserQuestionsAnswer,
   type AskUserQuestionsInteraction,
@@ -983,21 +984,6 @@ function requestConfirmationTargetLabel(target: RequestConfirmationTarget) {
   return `${target.key}${revision}`;
 }
 
-function requestConfirmationTargetHref({
-  issueId,
-  target,
-}: {
-  issueId: string;
-  target: RequestConfirmationTarget;
-}) {
-  if (target.href) return target.href;
-  if (target.type === "issue_document") {
-    const targetIssueId = target.issueId ?? issueId;
-    return `/issues/${targetIssueId}#document-${encodeURIComponent(target.key)}`;
-  }
-  return null;
-}
-
 function RequestConfirmationTargetChip({
   issueId,
   target,
@@ -1009,7 +995,7 @@ function RequestConfirmationTargetChip({
 }) {
   if (!target) return null;
 
-  const href = requestConfirmationTargetHref({ issueId, target });
+  const href = getRequestConfirmationTargetHref({ issueId, target });
   const className = cn(
     "inline-flex max-w-full items-center gap-1.5 rounded-sm border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em]",
     tone === "default"

@@ -33,6 +33,7 @@ import type {
   RequestCheckboxConfirmationPayload,
   RequestCheckboxConfirmationResult,
   RequestConfirmationInteraction,
+  RequestConfirmationTarget,
   SuggestedTaskDraft,
   SuggestTasksInteraction,
   SuggestTasksResultCreatedTask,
@@ -71,6 +72,31 @@ export function getCheckboxConfirmationSelectedLabels(args: {
   return selectedIds
     .map((optionId) => optionLabelById.get(optionId))
     .filter((label): label is string => typeof label === "string");
+}
+
+export function normalizeRequestConfirmationTargetHref(href: string) {
+  const value = href.trim();
+  if (value.startsWith("#")) return value;
+  if (value.startsWith("/")) return value.startsWith("//") ? null : value;
+  return /^https?:\/\//i.test(value) ? value : null;
+}
+
+export function getRequestConfirmationTargetHref({
+  issueId,
+  target,
+}: {
+  issueId: string;
+  target: RequestConfirmationTarget;
+}) {
+  if (target.href) {
+    const safeHref = normalizeRequestConfirmationTargetHref(target.href);
+    if (safeHref) return safeHref;
+  }
+  if (target.type === "issue_document") {
+    const targetIssueId = target.issueId ?? issueId;
+    return `/issues/${targetIssueId}#document-${encodeURIComponent(target.key)}`;
+  }
+  return null;
 }
 
 export function buildIssueThreadInteractionSummary(

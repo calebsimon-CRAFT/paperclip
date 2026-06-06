@@ -5,7 +5,9 @@ import {
   collectSuggestedTaskClientKeys,
   countSuggestedTaskNodes,
   getCheckboxConfirmationSelectedLabels,
+  getRequestConfirmationTargetHref,
   getQuestionAnswerLabels,
+  normalizeRequestConfirmationTargetHref,
 } from "./issue-thread-interactions";
 
 describe("buildSuggestedTaskTree", () => {
@@ -184,6 +186,51 @@ describe("issue thread interaction helpers", () => {
     });
 
     expect(labels).toEqual(["Charlie", "Alpha"]);
+  });
+
+  it("allows only safe confirmation target hrefs for rendering", () => {
+    for (const href of [
+      "https://example.com/checklist",
+      "http://example.com/checklist",
+      "/PAP/issues/PAP-123#document-plan",
+      "#document-plan",
+    ]) {
+      expect(normalizeRequestConfirmationTargetHref(href)).toBe(href);
+    }
+
+    for (const href of [
+      "file:///tmp/x",
+      "mailto:user@example.com",
+      "slack://channel?id=1",
+      "vscode://file/tmp/x",
+      "ftp://example.com/file",
+      "//evil.example/path",
+    ]) {
+      expect(normalizeRequestConfirmationTargetHref(href)).toBeNull();
+    }
+  });
+
+  it("does not return unsafe custom target hrefs from accepted payloads", () => {
+    expect(getRequestConfirmationTargetHref({
+      issueId: "issue-1",
+      target: {
+        type: "custom",
+        key: "unsafe-target",
+        label: "Unsafe target",
+        href: "file:///tmp/x",
+      },
+    })).toBeNull();
+
+    expect(getRequestConfirmationTargetHref({
+      issueId: "issue-1",
+      target: {
+        type: "issue_document",
+        issueId: "issue-2",
+        key: "plan",
+        revisionId: "11111111-1111-4111-8111-111111111111",
+        href: "slack://channel?id=1",
+      },
+    })).toBe("/issues/issue-2#document-plan");
   });
 
   it("maps stored option ids back to labels for answered summaries", () => {
