@@ -229,6 +229,8 @@ export const DocumentsTabEmpty: Story = {
       <EmptyState
         icon={FileText}
         message="Only the plan document is linked. Add a spec, brief, or report to keep more context here."
+        action="Add document"
+        onAction={() => {}}
       />
     </Shell>
   ),
