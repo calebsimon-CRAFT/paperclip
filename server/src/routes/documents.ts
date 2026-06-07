@@ -3,6 +3,7 @@ import type { Db } from "@paperclipai/db";
 import {
   companyDocumentListQuerySchema,
   createDocumentLinkSchema,
+  isUuidLike,
   updateDocumentMetadataSchema,
 } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
@@ -14,6 +15,17 @@ export function documentRoutes(db: Db) {
   const documents = documentService(db);
   const projects = projectService(db);
   const access = accessService(db);
+
+  // Document ids are UUID-keyed. Reject malformed ids early so they surface as a
+  // structured 400 instead of bubbling up as a Postgres "invalid input syntax for
+  // type uuid" error (which would become an opaque 500). See PAP-10582.
+  router.param("documentId", (req, res, next, value) => {
+    if (!isUuidLike(value)) {
+      res.status(400).json({ error: "Invalid document id format" });
+      return;
+    }
+    next();
+  });
 
   router.get("/companies/:companyId/documents", async (req, res) => {
     const companyId = req.params.companyId as string;

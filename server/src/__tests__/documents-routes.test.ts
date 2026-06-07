@@ -158,4 +158,28 @@ describeEmbeddedPostgres("document routes", () => {
       }),
     ]));
   });
+
+  it("returns 400 for a malformed document id instead of a 500 (PAP-10582)", async () => {
+    const companyA = await seedCompany("A");
+    const app = createApp();
+
+    const res = await request(app)
+      .get(`/api/companies/${companyA}/documents/not-a-uuid`)
+      .expect(400);
+    expect(res.body).toEqual({ error: "Invalid document id format" });
+
+    // Other :documentId routes are covered by the same param guard.
+    await request(app)
+      .get(`/api/companies/${companyA}/documents/not-a-uuid/backlinks`)
+      .expect(400);
+    await request(app)
+      .patch(`/api/companies/${companyA}/documents/not-a-uuid`)
+      .send({ status: "archived" })
+      .expect(400);
+
+    // A well-formed but non-existent id still resolves to a 404, not a 400.
+    await request(app)
+      .get(`/api/companies/${companyA}/documents/${randomUUID()}`)
+      .expect(404);
+  });
 });
