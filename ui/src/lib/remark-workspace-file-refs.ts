@@ -11,9 +11,12 @@ type MarkdownNode = {
 
 export function buildWorkspaceFileHref(ref: ParsedWorkspaceFileRef): string {
   const params = new URLSearchParams();
+  if (ref.projectId) params.set("projectId", ref.projectId);
+  if (ref.workspaceId) params.set("workspaceId", ref.workspaceId);
   params.set("path", ref.path);
   if (ref.line !== null) params.set("line", String(ref.line));
   if (ref.column !== null) params.set("column", String(ref.column));
+  if (ref.projectName) params.set("projectName", ref.projectName);
   return `${WORKSPACE_FILE_HREF_SCHEME}?${params.toString()}`;
 }
 
@@ -25,6 +28,10 @@ export function parseWorkspaceFileHref(href: string | null | undefined): ParsedW
   const params = new URLSearchParams(withoutLeadingQuestion);
   const path = params.get("path");
   if (!path) return null;
+  const projectIdRaw = params.get("projectId");
+  const workspaceIdRaw = params.get("workspaceId");
+  const hasExplicitTarget = Boolean(projectIdRaw && workspaceIdRaw);
+  const projectName = params.get("projectName");
   const lineRaw = params.get("line");
   const columnRaw = params.get("column");
   const line = lineRaw ? Number.parseInt(lineRaw, 10) : NaN;
@@ -33,6 +40,9 @@ export function parseWorkspaceFileHref(href: string | null | undefined): ParsedW
     path,
     line: Number.isFinite(line) && line > 0 ? line : null,
     column: Number.isFinite(column) && column > 0 ? column : null,
+    projectId: hasExplicitTarget ? projectIdRaw : null,
+    workspaceId: hasExplicitTarget ? workspaceIdRaw : null,
+    projectName: projectName || null,
     raw: path,
   };
 }

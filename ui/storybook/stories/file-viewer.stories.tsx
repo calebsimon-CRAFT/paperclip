@@ -157,7 +157,7 @@ function FileViewerShell({
             state={
               showPromptWhenEmpty
                 ? null
-                : { path, line, column, workspace }
+                : { path, line, column, workspace, projectId: null, workspaceId: null }
             }
             showPromptWhenEmpty={showPromptWhenEmpty}
             open
@@ -176,12 +176,12 @@ function seedContent(
   content: WorkspaceFileContent | null,
 ) {
   queryClient.setQueryData(
-    queryKeys.issues.fileResource(ISSUE_ID, path, workspace),
+    queryKeys.issues.fileResource(ISSUE_ID, { path, workspace }),
     resource,
   );
   if (content) {
     queryClient.setQueryData(
-      queryKeys.issues.fileResourceContent(ISSUE_ID, path, workspace),
+      queryKeys.issues.fileResourceContent(ISSUE_ID, { path, workspace }),
       content,
     );
   }

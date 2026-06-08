@@ -47,6 +47,8 @@ export function WorkspaceFileLink({
     line: workspaceFileRef.line ?? null,
     column: workspaceFileRef.column ?? null,
     workspace: "auto",
+    projectId: workspaceFileRef.projectId ?? null,
+    workspaceId: workspaceFileRef.workspaceId ?? null,
   });
   const href = canOpen
     ? `${location.pathname}${deepLinkSearch}${location.hash}`

@@ -68,6 +68,27 @@ describe("remarkWorkspaceFileRefs", () => {
     expect(parsed?.column).toBe(2);
   });
 
+  it("round-trips explicit project workspace identity", () => {
+    const href = buildWorkspaceFileHref({
+      path: "content-os/cases/readme.md",
+      line: 5,
+      column: null,
+      raw: "content-os/cases/readme.md:5",
+      projectId: "17acae7d-9d0c-46bf-9c82-be9694ac3461",
+      workspaceId: "0de5f74f-a7d4-4f73-a9a0-455a2b968cf2",
+      projectName: "Paperclip Content",
+    });
+    const parsed = parseWorkspaceFileHref(href);
+    expect(parsed).toMatchObject({
+      path: "content-os/cases/readme.md",
+      line: 5,
+      column: null,
+      projectId: "17acae7d-9d0c-46bf-9c82-be9694ac3461",
+      workspaceId: "0de5f74f-a7d4-4f73-a9a0-455a2b968cf2",
+      projectName: "Paperclip Content",
+    });
+  });
+
   it("converts linked inline-code file paths into workspace-file links", () => {
     const tree: MarkdownNode = {
       type: "paragraph",

@@ -135,11 +135,17 @@ function ViewFromBrowse() {
   const queryClient = useQueryClient();
   queryClient.setQueryData(listKey(ISSUE_ID), recentList);
   queryClient.setQueryData(
-    queryKeys.issues.fileResource(ISSUE_ID, "ui/src/components/FileViewerSheet.tsx", "auto"),
+    queryKeys.issues.fileResource(ISSUE_ID, {
+      path: "ui/src/components/FileViewerSheet.tsx",
+      workspace: "auto",
+    }),
     viewedResource,
   );
   queryClient.setQueryData(
-    queryKeys.issues.fileResourceContent(ISSUE_ID, "ui/src/components/FileViewerSheet.tsx", "auto"),
+      queryKeys.issues.fileResourceContent(ISSUE_ID, {
+        path: "ui/src/components/FileViewerSheet.tsx",
+        workspace: "auto",
+      }),
     viewedContent,
   );
   return (

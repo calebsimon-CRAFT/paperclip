@@ -8,6 +8,8 @@ export interface FileViewerUrlState {
   line: number | null;
   column: number | null;
   workspace: WorkspaceFileSelector;
+  projectId: string | null;
+  workspaceId: string | null;
 }
 
 export interface FileViewerContextValue {
@@ -18,8 +20,12 @@ export interface FileViewerContextValue {
   browse: boolean;
   /** The active browse search query (URL `q`), or null. */
   query: string | null;
+  browseProjectId: string | null;
+  browseWorkspaceId: string | null;
   open(
-    ref: Pick<ParsedWorkspaceFileRef, "path" | "line" | "column"> & { workspace?: WorkspaceFileSelector },
+    ref: Pick<ParsedWorkspaceFileRef, "path" | "line" | "column" | "projectId" | "workspaceId"> & {
+      workspace?: WorkspaceFileSelector;
+    },
     opts?: { fromBrowse?: boolean },
   ): void;
   /** Open (or stay in) browse mode, optionally seeding the search query. */
@@ -43,6 +49,9 @@ export function readFileViewerStateFromSearch(search: string): FileViewerUrlStat
   const lineRaw = params.get("line");
   const columnRaw = params.get("column");
   const workspaceRaw = params.get("workspace");
+  const projectIdRaw = params.get("projectId");
+  const workspaceIdRaw = params.get("workspaceId");
+  const hasExplicitTarget = Boolean(projectIdRaw && workspaceIdRaw);
   const line = lineRaw ? Number.parseInt(lineRaw, 10) : NaN;
   const column = columnRaw ? Number.parseInt(columnRaw, 10) : NaN;
   const workspace = (workspaceRaw === "execution" || workspaceRaw === "project")
@@ -53,6 +62,8 @@ export function readFileViewerStateFromSearch(search: string): FileViewerUrlStat
     line: Number.isFinite(line) && line > 0 ? line : null,
     column: Number.isFinite(column) && column > 0 ? column : null,
     workspace,
+    projectId: hasExplicitTarget ? projectIdRaw : null,
+    workspaceId: hasExplicitTarget ? workspaceIdRaw : null,
   };
 }
 
@@ -66,6 +77,8 @@ export function writeFileViewerStateToSearch(current: string, next: FileViewerUr
     params.delete("line");
     params.delete("column");
     params.delete("workspace");
+    params.delete("projectId");
+    params.delete("workspaceId");
   } else {
     params.set("file", next.path);
     if (next.line !== null) params.set("line", String(next.line));
@@ -74,6 +87,10 @@ export function writeFileViewerStateToSearch(current: string, next: FileViewerUr
     else params.delete("column");
     if (next.workspace && next.workspace !== "auto") params.set("workspace", next.workspace);
     else params.delete("workspace");
+    if (next.projectId) params.set("projectId", next.projectId);
+    else params.delete("projectId");
+    if (next.workspaceId) params.set("workspaceId", next.workspaceId);
+    else params.delete("workspaceId");
   }
   const str = params.toString();
   return str ? `?${str}` : "";
@@ -81,13 +98,21 @@ export function writeFileViewerStateToSearch(current: string, next: FileViewerUr
 
 export interface FileViewerBrowseState {
   q: string | null;
+  projectId: string | null;
+  workspaceId: string | null;
 }
 
 export function readBrowseStateFromSearch(search: string): FileViewerBrowseState | null {
   const params = new URLSearchParams(search);
   if (params.get("browse") !== "1") return null;
   const q = params.get("q");
-  return { q: q && q.length > 0 ? q : null };
+  const projectId = params.get("projectId");
+  const workspaceId = params.get("workspaceId");
+  return {
+    q: q && q.length > 0 ? q : null,
+    projectId: projectId || null,
+    workspaceId: workspaceId || null,
+  };
 }
 
 interface FileViewerProviderProps {
@@ -124,6 +149,8 @@ function EnabledFileViewerProvider({ issueId, children }: Omit<FileViewerProvide
         line: ref.line ?? null,
         column: ref.column ?? null,
         workspace: ref.workspace ?? "auto",
+        projectId: ref.projectId ?? null,
+        workspaceId: ref.workspaceId ?? null,
       });
       if (opts?.fromBrowse) {
         const params = new URLSearchParams(nextSearch);
@@ -174,6 +201,8 @@ function EnabledFileViewerProvider({ issueId, children }: Omit<FileViewerProvide
       state,
       browse: browseState !== null,
       query: browseState?.q ?? null,
+      browseProjectId: browseState?.projectId ?? null,
+      browseWorkspaceId: browseState?.workspaceId ?? null,
       open,
       openBrowse,
       backToFiles,

@@ -4405,6 +4405,7 @@ export function IssueDetail() {
       {fileViewerEnabled ? (
         <IssueFileViewer
           issueId={issue.id}
+          companyId={issue.companyId}
           promptOpen={fileViewerPromptOpen}
           onPromptOpenChange={setFileViewerPromptOpen}
         />
@@ -4417,10 +4418,12 @@ export function IssueDetail() {
 
 function IssueFileViewer({
   issueId,
+  companyId,
   promptOpen,
   onPromptOpenChange,
 }: {
   issueId: string;
+  companyId: string;
   promptOpen: boolean;
   onPromptOpenChange: (next: boolean) => void;
 }) {
@@ -4430,6 +4433,7 @@ function IssueFileViewer({
   return (
     <FileViewerSheet
       issueId={issueId}
+      companyId={companyId}
       open={open}
       showPromptWhenEmpty={showPromptWhenEmpty}
       onOpenChange={(next) => {

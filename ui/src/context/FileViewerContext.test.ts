@@ -27,6 +27,8 @@ describe("readFileViewerStateFromSearch", () => {
       line: 42,
       column: 3,
       workspace: "project",
+      projectId: null,
+      workspaceId: null,
     });
   });
 
@@ -51,7 +53,14 @@ describe("writeFileViewerStateToSearch", () => {
   it("sets all params when opening", () => {
     const next = writeFileViewerStateToSearch(
       "?existing=1",
-      { path: "ui/src/a.ts", line: 42, column: 3, workspace: "project" },
+      {
+        path: "ui/src/a.ts",
+        line: 42,
+        column: 3,
+        workspace: "project",
+        projectId: null,
+        workspaceId: null,
+      },
     );
     const params = new URLSearchParams(next);
     expect(params.get("file")).toBe("ui/src/a.ts");
@@ -64,14 +73,37 @@ describe("writeFileViewerStateToSearch", () => {
   it("omits workspace when auto", () => {
     const next = writeFileViewerStateToSearch(
       "",
-      { path: "a.ts", line: null, column: null, workspace: "auto" },
+      { path: "a.ts", line: null, column: null, workspace: "auto", projectId: null, workspaceId: null },
     );
     expect(next.includes("workspace")).toBe(false);
   });
 
+  it("round-trips explicit target project workspace params", () => {
+    const next = writeFileViewerStateToSearch(
+      "?existing=1",
+      {
+        path: "content-os/cases/readme.md",
+        line: 7,
+        column: null,
+        workspace: "auto",
+        projectId: "17acae7d-9d0c-46bf-9c82-be9694ac3461",
+        workspaceId: "0de5f74f-a7d4-4f73-a9a0-455a2b968cf2",
+      },
+    );
+    const state = readFileViewerStateFromSearch(next);
+    expect(state).toEqual({
+      path: "content-os/cases/readme.md",
+      line: 7,
+      column: null,
+      workspace: "auto",
+      projectId: "17acae7d-9d0c-46bf-9c82-be9694ac3461",
+      workspaceId: "0de5f74f-a7d4-4f73-a9a0-455a2b968cf2",
+    });
+  });
+
   it("clears viewer params when closing", () => {
     const next = writeFileViewerStateToSearch(
-      "?file=a.ts&line=1&column=2&workspace=project&keep=yes",
+      "?file=a.ts&line=1&column=2&workspace=project&projectId=project-1&workspaceId=workspace-1&keep=yes",
       null,
     );
     const params = new URLSearchParams(next);
@@ -79,6 +111,8 @@ describe("writeFileViewerStateToSearch", () => {
     expect(params.get("line")).toBeNull();
     expect(params.get("column")).toBeNull();
     expect(params.get("workspace")).toBeNull();
+    expect(params.get("projectId")).toBeNull();
+    expect(params.get("workspaceId")).toBeNull();
     expect(params.get("keep")).toBe("yes");
   });
 

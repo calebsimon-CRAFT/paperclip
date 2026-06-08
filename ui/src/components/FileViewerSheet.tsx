@@ -342,6 +342,7 @@ function LoadingView({ elapsedMs }: { elapsedMs: number }) {
 
 interface FileViewerSheetProps {
   issueId: string;
+  companyId?: string | null;
   /** When not provided, the sheet defaults to the context state. */
   state?: FileViewerUrlState | null;
   /** When true, renders the "Open file" prompt when no file is selected but sheet is open. */
@@ -353,6 +354,7 @@ interface FileViewerSheetProps {
 
 export function FileViewerSheet({
   issueId,
+  companyId,
   state: stateProp,
   showPromptWhenEmpty = false,
   open: openProp,
@@ -383,13 +385,13 @@ export function FileViewerSheet({
     }, 75);
     return () => window.clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state?.path, state?.workspace]);
+  }, [state?.path, state?.workspace, state?.projectId, state?.workspaceId]);
 
   const resolveQuery = useQuery({
     queryKey: state
-      ? queryKeys.issues.fileResource(issueId, state.path, state.workspace)
+      ? queryKeys.issues.fileResource(issueId, state)
       : ["issues", "file-resources", issueId, "resolve", "__closed__"],
-    queryFn: () => fileResourcesApi.resolve(issueId, { path: state!.path, workspace: state!.workspace }),
+    queryFn: () => fileResourcesApi.resolve(issueId, state!),
     enabled: !!state && computedOpen,
     retry: false,
     staleTime: 30_000,
@@ -400,9 +402,9 @@ export function FileViewerSheet({
 
   const contentQuery = useQuery({
     queryKey: state
-      ? queryKeys.issues.fileResourceContent(issueId, state.path, state.workspace)
+      ? queryKeys.issues.fileResourceContent(issueId, state)
       : ["issues", "file-resources", issueId, "content", "__closed__"],
-    queryFn: () => fileResourcesApi.content(issueId, { path: state!.path, workspace: state!.workspace }),
+    queryFn: () => fileResourcesApi.content(issueId, state!),
     enabled: !!state && computedOpen && canPreview,
     retry: false,
     staleTime: 30_000,
@@ -434,9 +436,23 @@ export function FileViewerSheet({
   );
 
   const handleBrowseOpen = useCallback(
-    (ref: { path: string; workspace: WorkspaceFileSelector; line?: number | null; column?: number | null }) => {
+    (ref: {
+      path: string;
+      workspace: WorkspaceFileSelector;
+      line?: number | null;
+      column?: number | null;
+      projectId?: string | null;
+      workspaceId?: string | null;
+    }) => {
       viewer.open(
-        { path: ref.path, line: ref.line ?? null, column: ref.column ?? null, workspace: ref.workspace },
+        {
+          path: ref.path,
+          line: ref.line ?? null,
+          column: ref.column ?? null,
+          workspace: ref.workspace,
+          projectId: ref.projectId ?? null,
+          workspaceId: ref.workspaceId ?? null,
+        },
         { fromBrowse: true },
       );
     },
@@ -619,13 +635,15 @@ export function FileViewerSheet({
               onRetry={handleRetry}
               onSetAnnouncement={setAnnouncement}
               onFallbackToProject={
-                state.workspace !== "project"
+                state.workspace !== "project" && !state.projectId && !state.workspaceId
                   ? () =>
                       viewer.open({
                         path: state.path,
                         line: state.line,
                         column: state.column,
                         workspace: "project",
+                        projectId: null,
+                        workspaceId: null,
                       })
                   : null
               }
@@ -633,8 +651,11 @@ export function FileViewerSheet({
           ) : browseMode ? (
             <WorkspaceFileBrowser
               issueId={issueId}
+              companyId={companyId}
               onOpen={handleBrowseOpen}
               initialQuery={viewer.query}
+              initialProjectId={viewer.browseProjectId}
+              initialWorkspaceId={viewer.browseWorkspaceId}
               className="min-h-0 flex-1 p-4"
             />
           ) : null}

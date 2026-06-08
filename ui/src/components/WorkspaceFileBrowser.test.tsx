@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 
+import type { ComponentProps } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
-import type { WorkspaceFileListItem, WorkspaceFileListResponse } from "@paperclipai/shared";
+import type { Project, ProjectWorkspace, WorkspaceFileListItem, WorkspaceFileListResponse } from "@paperclipai/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceFileBrowser, describeUnavailable } from "./WorkspaceFileBrowser";
 
@@ -64,6 +65,72 @@ function availableResponse(items: WorkspaceFileListItem[], truncated = false): W
   };
 }
 
+function createWorkspace(overrides: Partial<ProjectWorkspace> = {}): ProjectWorkspace {
+  return {
+    id: "workspace-content",
+    companyId: "company-1",
+    projectId: "project-content",
+    name: "Paperclip Content",
+    sourceType: "local_path",
+    cwd: "/srv/paperclip/home/paperclipai/paperclip-content",
+    repoUrl: null,
+    repoRef: null,
+    defaultRef: null,
+    visibility: "default",
+    setupCommand: null,
+    cleanupCommand: null,
+    remoteProvider: null,
+    remoteWorkspaceRef: null,
+    sharedWorkspaceKey: null,
+    metadata: null,
+    runtimeConfig: null,
+    isPrimary: true,
+    createdAt: new Date("2026-06-08T00:00:00.000Z"),
+    updatedAt: new Date("2026-06-08T00:00:00.000Z"),
+    ...overrides,
+  };
+}
+
+function createProject(overrides: Partial<Project> = {}): Project {
+  const workspace = createWorkspace();
+  return {
+    id: "project-content",
+    companyId: "company-1",
+    urlKey: "paperclip-content",
+    goalId: null,
+    goalIds: [],
+    goals: [],
+    name: "Paperclip Content",
+    description: null,
+    status: "in_progress",
+    leadAgentId: null,
+    targetDate: null,
+    color: null,
+    icon: null,
+    env: null,
+    pauseReason: null,
+    pausedAt: null,
+    executionWorkspacePolicy: null,
+    codebase: {
+      workspaceId: workspace.id,
+      repoUrl: null,
+      repoRef: null,
+      defaultRef: null,
+      repoName: null,
+      localFolder: workspace.cwd,
+      managedFolder: "",
+      effectiveLocalFolder: workspace.cwd ?? "",
+      origin: "local_folder",
+    },
+    workspaces: [workspace],
+    primaryWorkspace: workspace,
+    archivedAt: null,
+    createdAt: new Date("2026-06-08T00:00:00.000Z"),
+    updatedAt: new Date("2026-06-08T00:00:00.000Z"),
+    ...overrides,
+  };
+}
+
 function unavailableResponse(reason: string): WorkspaceFileListResponse {
   return {
     kind: "workspace_file_list",
@@ -77,7 +144,7 @@ function unavailableResponse(reason: string): WorkspaceFileListResponse {
   };
 }
 
-function ok(data: WorkspaceFileListResponse) {
+function ok<T>(data: T) {
   return { data, isFetching: false, isError: false, error: null, refetch: vi.fn() };
 }
 
@@ -100,11 +167,11 @@ describe("WorkspaceFileBrowser", () => {
     container.remove();
   });
 
-  function renderBrowser(onOpen = vi.fn()) {
+  function renderBrowser(onOpen = vi.fn(), props: Partial<ComponentProps<typeof WorkspaceFileBrowser>> = {}) {
     const root = createRoot(container);
     roots.push(root);
     act(() => {
-      root.render(<WorkspaceFileBrowser issueId="issue-1" onOpen={onOpen} />);
+      root.render(<WorkspaceFileBrowser issueId="issue-1" onOpen={onOpen} {...props} />);
     });
     return { root, onOpen };
   }
@@ -168,6 +235,48 @@ describe("WorkspaceFileBrowser", () => {
     useQueryMock.mockReturnValue(ok(unavailableResponse("no_workspace")));
     renderBrowser();
     expect(container.textContent).toContain("No workspace yet");
+  });
+
+  it("opens a result from a selected other project workspace", () => {
+    const contentItem = createItem({
+      relativePath: "content-os/cases/active/2026-06-06-pap-10199-bundled-skills/README.md",
+      displayPath: "Paperclip Content / content-os/cases/active/2026-06-06-pap-10199-bundled-skills/README.md",
+      workspaceLabel: "Paperclip Content",
+      workspaceKind: "project_workspace",
+      workspaceId: "workspace-content",
+      projectId: "project-content",
+      projectName: "Paperclip Content",
+    });
+    useQueryMock.mockImplementation((options: { queryKey: readonly unknown[] }) => {
+      if (options.queryKey[0] === "projects") return ok([createProject()]);
+      return ok(availableResponse([contentItem]));
+    });
+
+    const { onOpen } = renderBrowser(vi.fn(), {
+      companyId: "company-1",
+      initialProjectId: "project-content",
+      initialWorkspaceId: "workspace-content",
+    });
+
+    expect(container.textContent).toContain("Other project");
+    expect(container.textContent).toContain("Browsing Paperclip Content / Paperclip Content");
+    const listCall = useQueryMock.mock.calls.find(([options]) => options.queryKey?.[3] === "list");
+    expect(listCall?.[0].queryKey[4]).toMatchObject({
+      workspace: "project",
+      projectId: "project-content",
+      workspaceId: "workspace-content",
+    });
+
+    const option = container.querySelector('[role="option"]')!;
+    act(() => {
+      option.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    expect(onOpen).toHaveBeenCalledWith({
+      path: "content-os/cases/active/2026-06-06-pap-10199-bundled-skills/README.md",
+      workspace: "project",
+      projectId: "project-content",
+      workspaceId: "workspace-content",
+    });
   });
 });
 

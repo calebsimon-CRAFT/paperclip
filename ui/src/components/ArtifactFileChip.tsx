@@ -15,6 +15,12 @@ export interface ArtifactFileChipProps {
   title?: string;
 }
 
+function artifactFileDisplay(ref: WorkspaceFileRef) {
+  if (!ref.projectName) return ref.displayPath;
+  const prefix = `${ref.projectName} / `;
+  return ref.displayPath.startsWith(prefix) ? ref.displayPath : `${prefix}${ref.displayPath}`;
+}
+
 export function ArtifactFileChip({
   workspaceFileRef,
   label,
@@ -24,7 +30,7 @@ export function ArtifactFileChip({
   title,
 }: ArtifactFileChipProps) {
   const viewer = useFileViewer();
-  const display = typeof label !== "undefined" ? label : workspaceFileRef.displayPath;
+  const display = typeof label !== "undefined" ? label : artifactFileDisplay(workspaceFileRef);
   const canOpen = !!(onOpen || viewer);
   const lineSuffix = workspaceFileRef.line
     ? ` line ${workspaceFileRef.line}${workspaceFileRef.column ? ` column ${workspaceFileRef.column}` : ""}`
@@ -61,6 +67,8 @@ export function ArtifactFileChip({
         line: workspaceFileRef.line ?? null,
         column: workspaceFileRef.column ?? null,
         workspace,
+        projectId: workspaceFileRef.projectId ?? null,
+        workspaceId: workspaceFileRef.projectId ? workspaceFileRef.workspaceId : null,
       });
     }
   };

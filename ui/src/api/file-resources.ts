@@ -10,10 +10,14 @@ import { api } from "./client";
 export interface FileResourceQuery {
   path: string;
   workspace?: WorkspaceFileSelector;
+  projectId?: string | null;
+  workspaceId?: string | null;
 }
 
 export interface FileResourceListQuery {
   workspace?: WorkspaceFileSelector;
+  projectId?: string | null;
+  workspaceId?: string | null;
   mode?: WorkspaceFileListMode;
   q?: string | null;
   limit?: number;
@@ -21,6 +25,10 @@ export interface FileResourceListQuery {
 
 function buildQuery(query: FileResourceQuery | FileResourceListQuery): string {
   const params = new URLSearchParams();
+  if (query.projectId && query.workspaceId) {
+    params.set("projectId", query.projectId);
+    params.set("workspaceId", query.workspaceId);
+  }
   if ("path" in query) params.set("path", query.path);
   if (query.workspace && query.workspace !== "auto") {
     params.set("workspace", query.workspace);

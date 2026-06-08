@@ -2,6 +2,9 @@ export interface ParsedWorkspaceFileRef {
   path: string;
   line: number | null;
   column: number | null;
+  projectId?: string | null;
+  projectName?: string | null;
+  workspaceId?: string | null;
   /** The original matched text (useful for rendering) */
   raw: string;
 }
@@ -77,7 +80,10 @@ export function parseWorkspaceFileRef(input: string): ParsedWorkspaceFileRef | n
 }
 
 export function formatWorkspaceFileRefDisplay(ref: ParsedWorkspaceFileRef): string {
-  if (ref.line && ref.column) return `${ref.path}:${ref.line}:${ref.column}`;
-  if (ref.line) return `${ref.path}:${ref.line}`;
-  return ref.path;
+  const path = ref.line && ref.column
+    ? `${ref.path}:${ref.line}:${ref.column}`
+    : ref.line
+      ? `${ref.path}:${ref.line}`
+      : ref.path;
+  return ref.projectName ? `${ref.projectName} / ${path}` : path;
 }

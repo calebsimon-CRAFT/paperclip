@@ -10,13 +10,16 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Cloud, FileCode2, FolderOpen, Loader2, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/timeAgo";
 import { fileResourcesApi } from "@/api/file-resources";
+import { projectsApi } from "@/api/projects";
 import { ApiError } from "@/api/client";
 import { queryKeys } from "@/lib/queryKeys";
 import { parseWorkspaceFileRef } from "@/lib/workspace-file-parser";
 import type {
+  Project,
   WorkspaceFileListItem,
   WorkspaceFileListMode,
   WorkspaceFileSelector,
@@ -27,6 +30,8 @@ const WORKSPACE_OPTIONS: ReadonlyArray<{ value: WorkspaceFileSelector; label: st
   { value: "execution", label: "Execution" },
   { value: "project", label: "Project" },
 ];
+
+type BrowserSource = "current" | "other";
 
 // Hard list cap. The spec called out ~50 to keep reads cheap; 100 trades a bit
 // more scan for fewer "refine to narrow" dead-ends on large trees. Footer always
@@ -118,6 +123,36 @@ function WorkspaceSelector({
   );
 }
 
+function SourceSelector({
+  value,
+  onChange,
+}: {
+  value: BrowserSource;
+  onChange: (next: BrowserSource) => void;
+}) {
+  return (
+    <div role="group" aria-label="File source" className="inline-flex shrink-0 rounded-md border border-border p-0.5">
+      {[
+        { value: "current" as const, label: "Current workspace" },
+        { value: "other" as const, label: "Other project" },
+      ].map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          aria-pressed={value === option.value}
+          onClick={() => onChange(option.value)}
+          className={cn(
+            "rounded px-2 py-1 text-xs transition-colors",
+            value === option.value ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 interface WorkspaceFileRowProps {
   item: WorkspaceFileListItem;
   optionId: string;
@@ -170,19 +205,37 @@ function WorkspaceFileRow({ item, optionId, selected, showTimestamp, onOpen, onH
 
 export interface WorkspaceFileBrowserProps {
   issueId: string;
+  companyId?: string | null;
   onOpen: (ref: {
     path: string;
     workspace: WorkspaceFileSelector;
     line?: number | null;
     column?: number | null;
+    projectId?: string | null;
+    workspaceId?: string | null;
   }) => void;
   /** Seed the search field (e.g. from a URL-backed deep link). */
   initialQuery?: string | null;
+  initialProjectId?: string | null;
+  initialWorkspaceId?: string | null;
   className?: string;
 }
 
-export function WorkspaceFileBrowser({ issueId, onOpen, initialQuery, className }: WorkspaceFileBrowserProps) {
+export function WorkspaceFileBrowser({
+  issueId,
+  companyId,
+  onOpen,
+  initialQuery,
+  initialProjectId,
+  initialWorkspaceId,
+  className,
+}: WorkspaceFileBrowserProps) {
+  const [source, setSource] = useState<BrowserSource>(
+    initialProjectId && initialWorkspaceId ? "other" : "current",
+  );
   const [workspace, setWorkspace] = useState<WorkspaceFileSelector>("auto");
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(initialProjectId ?? null);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(initialWorkspaceId ?? null);
   const [searchInput, setSearchInput] = useState(initialQuery ?? "");
   const [debouncedQuery, setDebouncedQuery] = useState(initialQuery?.trim() ?? "");
   // When the workspace has no git change-tracking we silently fall back to a full
@@ -193,6 +246,49 @@ export function WorkspaceFileBrowser({ issueId, onOpen, initialQuery, className 
   const listboxId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const projectsQuery = useQuery({
+    queryKey: companyId ? queryKeys.projects.list(companyId) : ["projects", "__none__"],
+    queryFn: () => projectsApi.list(companyId!),
+    enabled: source === "other" && !!companyId,
+    retry: false,
+    staleTime: 30_000,
+  });
+
+  const projectRows = useMemo(
+    () => Array.isArray(projectsQuery.data) ? projectsQuery.data : [],
+    [projectsQuery.data],
+  );
+  const projectsWithWorkspaces = useMemo(
+    () => projectRows.filter((project: Project) => project.workspaces.length > 0),
+    [projectRows],
+  );
+  const selectedProject = useMemo(
+    () => projectsWithWorkspaces.find((project) => project.id === selectedProjectId) ?? null,
+    [projectsWithWorkspaces, selectedProjectId],
+  );
+  const selectedWorkspace = useMemo(
+    () => selectedProject?.workspaces.find((item) => item.id === selectedWorkspaceId) ?? null,
+    [selectedProject, selectedWorkspaceId],
+  );
+
+  useEffect(() => {
+    if (source !== "other" || !projectsQuery.data) return;
+    const nextProject = selectedProject ?? projectsWithWorkspaces[0] ?? null;
+    if (!nextProject) {
+      setSelectedProjectId(null);
+      setSelectedWorkspaceId(null);
+      return;
+    }
+    if (selectedProjectId !== nextProject.id) {
+      setSelectedProjectId(nextProject.id);
+    }
+    const nextWorkspace = nextProject.workspaces.find((item) => item.id === selectedWorkspaceId)
+      ?? nextProject.primaryWorkspace
+      ?? nextProject.workspaces[0]
+      ?? null;
+    setSelectedWorkspaceId(nextWorkspace?.id ?? null);
+  }, [projectsQuery.data, projectsWithWorkspaces, selectedProject, selectedProjectId, selectedWorkspaceId, source]);
+
   useEffect(() => {
     const handle = window.setTimeout(() => setDebouncedQuery(searchInput.trim()), 150);
     return () => window.clearTimeout(handle);
@@ -201,15 +297,37 @@ export function WorkspaceFileBrowser({ issueId, onOpen, initialQuery, className 
   // A new search or workspace should re-attempt recent-change tracking.
   useEffect(() => {
     setRecentUnavailable(false);
-  }, [workspace]);
+  }, [workspace, source, selectedProjectId, selectedWorkspaceId]);
 
   const q = debouncedQuery || null;
   const isSearch = q !== null;
   const mode: WorkspaceFileListMode = isSearch ? "all" : recentUnavailable ? "all" : "changed";
+  const targetProjectId = source === "other" ? selectedProjectId : null;
+  const targetWorkspaceId = source === "other" ? selectedWorkspaceId : null;
+  const effectiveWorkspace: WorkspaceFileSelector = source === "other" ? "project" : workspace;
+  const canListFiles = source === "current" || Boolean(targetProjectId && targetWorkspaceId);
+  const targetRef = targetProjectId && targetWorkspaceId
+    ? { projectId: targetProjectId, workspaceId: targetWorkspaceId }
+    : {};
 
   const listQuery = useQuery({
-    queryKey: queryKeys.issues.fileResources(issueId, { workspace, mode, q, limit: LIST_LIMIT }),
-    queryFn: () => fileResourcesApi.list(issueId, { workspace, mode, q, limit: LIST_LIMIT }),
+    queryKey: queryKeys.issues.fileResources(issueId, {
+      workspace: effectiveWorkspace,
+      projectId: targetProjectId,
+      workspaceId: targetWorkspaceId,
+      mode,
+      q,
+      limit: LIST_LIMIT,
+    }),
+    queryFn: () => fileResourcesApi.list(issueId, {
+      workspace: effectiveWorkspace,
+      projectId: targetProjectId,
+      workspaceId: targetWorkspaceId,
+      mode,
+      q,
+      limit: LIST_LIMIT,
+    }),
+    enabled: canListFiles,
     retry: false,
     staleTime: 15_000,
   });
@@ -228,7 +346,7 @@ export function WorkspaceFileBrowser({ issueId, onOpen, initialQuery, className 
   // Keep the highlighted option valid as results change.
   useEffect(() => {
     setHighlightedIndex(items.length > 0 ? 0 : -1);
-  }, [items, q, workspace]);
+  }, [items, q, workspace, source, selectedProjectId, selectedWorkspaceId]);
 
   const announcement = useMemo(() => {
     if (listQuery.isFetching) return "Loading workspace files…";
@@ -242,8 +360,9 @@ export function WorkspaceFileBrowser({ issueId, onOpen, initialQuery, className 
     const value = searchInput.trim();
     if (!value) return;
     const parsed = parseWorkspaceFileRef(value);
-    if (parsed) onOpen({ path: parsed.path, workspace, line: parsed.line, column: parsed.column });
-    else onOpen({ path: value, workspace });
+    const target = { workspace: effectiveWorkspace, ...targetRef };
+    if (parsed) onOpen({ path: parsed.path, ...target, line: parsed.line, column: parsed.column });
+    else onOpen({ path: value, ...target });
   }
 
   function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -256,15 +375,54 @@ export function WorkspaceFileBrowser({ issueId, onOpen, initialQuery, className 
     } else if (event.key === "Enter") {
       event.preventDefault();
       const item = highlightedIndex >= 0 ? items[highlightedIndex] : undefined;
-      if (item) onOpen({ path: item.relativePath, workspace });
+      if (item) {
+        const itemTarget = item.projectId
+          ? { projectId: item.projectId, workspaceId: item.workspaceId }
+          : targetRef;
+        onOpen({
+          path: item.relativePath,
+          workspace: effectiveWorkspace,
+          ...itemTarget,
+        });
+      }
       else openTypedPath();
     }
+  }
+
+  function handleProjectChange(projectId: string) {
+    const project = projectsWithWorkspaces.find((item) => item.id === projectId) ?? null;
+    setSelectedProjectId(project?.id ?? null);
+    setSelectedWorkspaceId(project?.primaryWorkspace?.id ?? project?.workspaces[0]?.id ?? null);
   }
 
   const activeOptionId = highlightedIndex >= 0 ? `${listboxId}-opt-${highlightedIndex}` : undefined;
 
   let body: ReactNode;
-  if (listQuery.isFetching && !data) {
+  if (source === "other" && !companyId) {
+    body = (
+      <StateMessage
+        icon={<FolderOpen aria-hidden="true" className="h-5 w-5 text-muted-foreground" />}
+        title="No company selected"
+        body="Choose a company before browsing another project workspace."
+      />
+    );
+  } else if (source === "other" && projectsQuery.isFetching && projectsWithWorkspaces.length === 0) {
+    body = (
+      <StateMessage
+        icon={<Loader2 aria-hidden="true" className="h-5 w-5 animate-spin text-muted-foreground" />}
+        title="Loading project workspaces"
+        body="Registered workspaces will appear here."
+      />
+    );
+  } else if (source === "other" && !canListFiles) {
+    body = (
+      <StateMessage
+        icon={<FolderOpen aria-hidden="true" className="h-5 w-5 text-muted-foreground" />}
+        title="No project workspaces"
+        body="No same-company project has a registered workspace to browse."
+      />
+    );
+  } else if (listQuery.isFetching && !data) {
     body = (
       <div className="space-y-1.5 py-2" aria-busy="true">
         {Array.from({ length: 6 }).map((_, index) => (
@@ -309,7 +467,16 @@ export function WorkspaceFileBrowser({ issueId, onOpen, initialQuery, className 
             optionId={`${listboxId}-opt-${index}`}
             selected={index === highlightedIndex}
             showTimestamp={!isSearch}
-            onOpen={() => onOpen({ path: item.relativePath, workspace })}
+            onOpen={() => {
+              const itemTarget = item.projectId
+                ? { projectId: item.projectId, workspaceId: item.workspaceId }
+                : targetRef;
+              onOpen({
+                path: item.relativePath,
+                workspace: effectiveWorkspace,
+                ...itemTarget,
+              });
+            }}
             onHover={() => setHighlightedIndex(index)}
           />
         ))}
@@ -344,9 +511,61 @@ export function WorkspaceFileBrowser({ issueId, onOpen, initialQuery, className 
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-muted-foreground">Workspace</span>
-        <WorkspaceSelector value={workspace} onChange={setWorkspace} />
+        <span className="text-xs text-muted-foreground">Source</span>
+        <SourceSelector value={source} onChange={setSource} />
+        {source === "current" ? (
+          <>
+            <span className="text-xs text-muted-foreground">Workspace</span>
+            <WorkspaceSelector value={workspace} onChange={setWorkspace} />
+          </>
+        ) : null}
       </div>
+
+      {source === "other" ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground">Project</span>
+          <Select
+            value={selectedProjectId ?? undefined}
+            onValueChange={handleProjectChange}
+            disabled={!companyId || projectsQuery.isFetching || projectsWithWorkspaces.length === 0}
+          >
+            <SelectTrigger size="sm" className="h-8 max-w-[260px] text-xs">
+              <SelectValue placeholder={projectsQuery.isFetching ? "Loading projects" : "Choose project"} />
+            </SelectTrigger>
+            <SelectContent>
+              {projectsWithWorkspaces.map((project) => (
+                <SelectItem key={project.id} value={project.id}>
+                  {project.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <span className="text-xs text-muted-foreground">Workspace</span>
+          <Select
+            value={selectedWorkspaceId ?? undefined}
+            onValueChange={setSelectedWorkspaceId}
+            disabled={!selectedProject || selectedProject.workspaces.length === 0}
+          >
+            <SelectTrigger size="sm" className="h-8 max-w-[260px] text-xs">
+              <SelectValue placeholder="Choose workspace" />
+            </SelectTrigger>
+            <SelectContent>
+              {(selectedProject?.workspaces ?? []).map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
+
+      {source === "other" && selectedProject && selectedWorkspace ? (
+        <div className="truncate text-[11px] text-muted-foreground" title={`${selectedProject.name} / ${selectedWorkspace.name}`}>
+          Browsing {selectedProject.name} / {selectedWorkspace.name}
+        </div>
+      ) : null}
 
       <div className="flex items-baseline justify-between gap-2 pt-1">
         <span className="text-xs font-medium text-muted-foreground">
