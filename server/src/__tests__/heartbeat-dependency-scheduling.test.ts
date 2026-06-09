@@ -551,12 +551,16 @@ describeEmbeddedPostgres("heartbeat dependency-aware queued run selection", () =
 
     finishReleaseRun();
     await waitForCondition(async () => {
-      const run = await db
-        .select({ status: heartbeatRuns.status })
+      const row = await db
+        .select({
+          runStatus: heartbeatRuns.status,
+          wakeStatus: agentWakeupRequests.status,
+        })
         .from(heartbeatRuns)
+        .leftJoin(agentWakeupRequests, eq(agentWakeupRequests.id, heartbeatRuns.wakeupRequestId))
         .where(eq(heartbeatRuns.id, releasedWake!.id))
         .then((rows) => rows[0] ?? null);
-      return run?.status === "succeeded";
+      return row?.runStatus === "succeeded" && row.wakeStatus === "completed";
     });
 
     const blockerReleaseRunCount = await db
