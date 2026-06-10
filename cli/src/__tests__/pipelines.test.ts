@@ -89,6 +89,36 @@ describe("pipeline CLI commands", () => {
       items: [{ caseId: CASE_ID, decision: "request_changes", reason: "Needs edits", expectedVersion: 2 }],
     });
   });
+
+  it("passes blockedByCaseKeys rows through ingest-batch", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "paperclip-pipeline-cli-"));
+    const file = join(dir, "ingest-batch.json");
+    await writeFile(file, JSON.stringify([
+      { caseKey: "tweet", title: "Tweet", blockedByCaseKeys: ["image", "post"] },
+      { caseKey: "image", title: "Image" },
+      { caseKey: "post", title: "Post" },
+    ]));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse([{ id: "33333333-3333-4333-8333-333333333333", key: "content", name: "Content" }]))
+      .mockResolvedValueOnce(jsonResponse([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      await run(["pipelines", "ingest-batch", "content", "--file", file]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("http://localhost:3100/api/pipelines/33333333-3333-4333-8333-333333333333/cases/batch");
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      items: [
+        { caseKey: "tweet", title: "Tweet", blockedByCaseKeys: ["image", "post"] },
+        { caseKey: "image", title: "Image" },
+        { caseKey: "post", title: "Post" },
+      ],
+    });
+  });
 });
 
 function jsonResponse(body: unknown = { ok: true }, init: ResponseInit = { status: 200 }): Response {

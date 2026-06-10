@@ -109,6 +109,7 @@ interface IngestOptions extends PipelineOptions {
   parentCase?: string;
   workspaceRefJson?: string;
   blockedBy?: string;
+  blockedByKey?: string;
 }
 
 interface IngestBatchOptions extends PipelineOptions {
@@ -336,6 +337,7 @@ export function registerPipelineCommands(program: Command): void {
       .option("--parent-case <id>", "Parent case ID")
       .option("--workspace-ref-json <json>", "Workspace ref JSON object")
       .option("--blocked-by <csv>", "Comma-separated blocker case IDs")
+      .option("--blocked-by-key <csv>", "Comma-separated blocker case keys")
       .action((pipeline: string, opts: IngestOptions) => withPipelineErrors(async () => {
         const ctx = resolvePipelineContext(opts);
         const pipelineId = await resolvePipelineId(ctx, pipeline);
@@ -662,6 +664,7 @@ async function buildIngestBody(opts: IngestOptions): Promise<JsonObject> {
   if (opts.fieldsJson || opts.fieldsFile) body.fields = await readJsonFromOptions(opts.fieldsJson, opts.fieldsFile);
   if (opts.workspaceRefJson) body.workspaceRef = parseJson(opts.workspaceRefJson);
   if (opts.blockedBy) body.blockedByCaseIds = parseCsv(opts.blockedBy);
+  if (opts.blockedByKey) body.blockedByCaseKeys = parseCsv(opts.blockedByKey);
   return body;
 }
 

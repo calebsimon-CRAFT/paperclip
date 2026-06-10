@@ -50,6 +50,7 @@ const ingestCaseSchema = z.object({
   parentCaseId: z.string().uuid().nullable().optional(),
   workspaceRef: jsonObjectSchema.nullable().optional(),
   blockedByCaseIds: z.array(z.string().uuid()).max(100).optional(),
+  blockedByCaseKeys: z.array(z.string().max(1_024)).max(100).optional(),
 });
 const createPipelineSchema = z.object({
   key: z.string().trim().min(1).max(120),

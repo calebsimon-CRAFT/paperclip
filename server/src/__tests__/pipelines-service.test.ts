@@ -478,6 +478,123 @@ describeEmbeddedPostgres("pipelineService", () => {
     expect(moved.case.version).toBe(2);
   });
 
+  it("resolves in-batch forward blocker case keys", async () => {
+    const { company, pipeline } = await seedPipeline();
+
+    const results = await svc.ingestCases({
+      companyId: company.id,
+      pipelineId: pipeline.id,
+      items: [
+        { caseKey: "tweet", title: "Tweet", blockedByCaseKeys: ["image", "post"] },
+        { caseKey: "image", title: "Image" },
+        { caseKey: "post", title: "Post" },
+      ],
+      actor: userActor,
+    });
+
+    expect(results.map((result) => result.ok)).toEqual([true, true, true]);
+    const successful = results.filter((result): result is Extract<(typeof results)[number], { ok: true }> => result.ok);
+    const byKey = new Map(successful
+      .map((result) => [result.case.caseKey, result.case.id]));
+    const blockers = await db
+      .select()
+      .from(pipelineCaseBlockers)
+      .where(eq(pipelineCaseBlockers.caseId, byKey.get("tweet")!));
+    expect(blockers.map((row) => row.blockedByCaseId).sort()).toEqual([
+      byKey.get("image")!,
+      byKey.get("post")!,
+    ].sort());
+    const events = await svc.listCaseEvents(company.id, byKey.get("tweet")!);
+    const blockersEvent = events.find((event) => event.type === "blockers_set");
+    expect(blockersEvent?.payload).toMatchObject({
+      blockedByCaseIds: expect.arrayContaining([byKey.get("image")!, byKey.get("post")!]),
+      blockedByCaseKeys: ["image", "post"],
+    });
+  });
+
+  it("resolves blocker case keys against existing cases", async () => {
+    const { company, pipeline } = await seedPipeline();
+    const asset = await svc.ingestCase({
+      companyId: company.id,
+      pipelineId: pipeline.id,
+      caseKey: "asset",
+      title: "Asset",
+      actor: userActor,
+    });
+
+    const created = await svc.ingestCase({
+      companyId: company.id,
+      pipelineId: pipeline.id,
+      caseKey: "tweet",
+      title: "Tweet",
+      blockedByCaseKeys: ["asset"],
+      actor: userActor,
+    });
+
+    const blockers = await db
+      .select()
+      .from(pipelineCaseBlockers)
+      .where(eq(pipelineCaseBlockers.caseId, created.case.id));
+    expect(blockers.map((row) => row.blockedByCaseId)).toEqual([asset.case.id]);
+  });
+
+  it("fails only unresolved blocker-key rows in batch ingest", async () => {
+    const { company, pipeline } = await seedPipeline();
+
+    const results = await svc.ingestCases({
+      companyId: company.id,
+      pipelineId: pipeline.id,
+      items: [
+        { caseKey: "ok", title: "OK" },
+        { caseKey: "missing", title: "Missing", blockedByCaseKeys: ["does-not-exist"] },
+        { caseKey: "after", title: "After" },
+      ],
+      actor: userActor,
+    });
+
+    expect(results[0]).toMatchObject({ ok: true });
+    expect(results[1]).toMatchObject({
+      ok: false,
+      caseKey: "missing",
+      error: {
+        status: 404,
+        details: { code: "blocker_case_key_not_found", missingCaseKeys: ["does-not-exist"] },
+      },
+    });
+    expect(results[2]).toMatchObject({ ok: true });
+    const rows = await db.select().from(pipelineCases).where(eq(pipelineCases.pipelineId, pipeline.id));
+    expect(rows.map((row) => row.caseKey).sort()).toEqual(["after", "ok"]);
+  });
+
+  it("rejects blocker cycles declared by batch case keys", async () => {
+    const { company, pipeline } = await seedPipeline();
+
+    const results = await svc.ingestCases({
+      companyId: company.id,
+      pipelineId: pipeline.id,
+      items: [
+        { caseKey: "a", title: "A", blockedByCaseKeys: ["b"] },
+        { caseKey: "b", title: "B", blockedByCaseKeys: ["a"] },
+      ],
+      actor: userActor,
+    });
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        ok: false,
+        caseKey: "a",
+        error: expect.objectContaining({ status: 409, details: { code: "blocker_cycle", blockedByCaseKeys: ["b"] } }),
+      }),
+      expect.objectContaining({
+        ok: false,
+        caseKey: "b",
+        error: expect.objectContaining({ status: 409, details: { code: "blocker_cycle", blockedByCaseKeys: ["a"] } }),
+      }),
+    ]);
+    const rows = await db.select().from(pipelineCases).where(eq(pipelineCases.pipelineId, pipeline.id));
+    expect(rows).toHaveLength(0);
+  });
+
   it("rejects parent and blocker cycles and enforces parent depth", async () => {
     const { company, pipeline } = await seedPipeline();
     const a = await svc.ingestCase({ companyId: company.id, pipelineId: pipeline.id, caseKey: "a", title: "A", actor: userActor });

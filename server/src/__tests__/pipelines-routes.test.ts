@@ -154,10 +154,16 @@ describeEmbeddedPostgres("pipeline routes", () => {
       .send({ caseKey: "case-1", title: "Case 1", fields: { channel: "blog" } })
       .expect(201);
     const caseId = ingested.body.case.id;
-    await http
+    const batchIngest = await http
       .post(`/api/pipelines/${pipelineId}/cases/batch`)
-      .send({ items: [{ caseKey: "case-2", title: "Case 2" }, { caseKey: "case-3", title: "Case 3" }] })
+      .send({ items: [{ caseKey: "case-2", title: "Case 2", blockedByCaseKeys: ["case-3"] }, { caseKey: "case-3", title: "Case 3" }] })
       .expect(200);
+    expect(batchIngest.body[0].ok).toBe(true);
+    const routeBlockers = await db
+      .select()
+      .from(pipelineCaseBlockers)
+      .where(eq(pipelineCaseBlockers.caseId, batchIngest.body[0].case.id));
+    expect(routeBlockers.map((row) => row.blockedByCaseId)).toEqual([batchIngest.body[1].case.id]);
     await http.get(`/api/pipelines/${pipelineId}/cases`).expect(200);
     await http.get(`/api/cases/${caseId}`).expect(200);
     await http.patch(`/api/cases/${caseId}`).send({ title: "Case 1 updated", expectedVersion: 1 }).expect(200);

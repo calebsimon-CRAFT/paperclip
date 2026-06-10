@@ -626,6 +626,43 @@ async function validateBlockerSet(
   return uniqueBlockerIds;
 }
 
+async function resolveBlockerCaseKeys(
+  db: PipelineDb,
+  input: { companyId: string; pipelineId: string; blockedByCaseKeys: string[] },
+) {
+  const uniqueKeys = [...new Set(input.blockedByCaseKeys)];
+  if (uniqueKeys.length !== input.blockedByCaseKeys.length) {
+    throw unprocessable("Pipeline blocker key set contains duplicate cases", { code: "validation" });
+  }
+  for (const key of uniqueKeys) assertCaseKey(key);
+  if (uniqueKeys.length === 0) return new Map<string, string>();
+
+  const rows = await db
+    .select({ id: pipelineCases.id, caseKey: pipelineCases.caseKey })
+    .from(pipelineCases)
+    .where(and(
+      eq(pipelineCases.companyId, input.companyId),
+      eq(pipelineCases.pipelineId, input.pipelineId),
+      inArray(pipelineCases.caseKey, uniqueKeys),
+    ));
+  if (rows.length !== uniqueKeys.length) {
+    throw new HttpError(404, "Pipeline blocker case key not found", {
+      code: "blocker_case_key_not_found",
+      missingCaseKeys: uniqueKeys.filter((key) => !rows.some((row) => row.caseKey === key)),
+    });
+  }
+  return new Map(rows.map((row) => [row.caseKey, row.id]));
+}
+
+function pipelineBatchError(error: unknown, fallbackCode = "unknown") {
+  const httpError = error as { status?: number; message?: string; details?: unknown };
+  return {
+    status: httpError.status ?? 500,
+    message: httpError.message ?? "Unknown error",
+    details: httpError.details ?? { code: fallbackCode },
+  };
+}
+
 async function enqueueStageAutomationLedger(
   db: PipelineDb,
   input: {
@@ -1254,6 +1291,7 @@ export function pipelineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeu
       stageKey?: string | null;
       parentCaseId?: string | null;
       blockedByCaseIds?: string[];
+      blockedByCaseKeys?: string[];
       actor: PipelineActor;
     }) {
       assertJsonSize(input.fields ?? {}, "fields");
@@ -1265,10 +1303,18 @@ export function pipelineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeu
         const pipeline = await getPipelineOrThrow(tx, input.companyId, input.pipelineId);
         if (pipeline.archivedAt) throw unprocessable("Pipeline is archived", { code: "pipeline_archived" });
         await assertValidParentCase(tx, { companyId: input.companyId, parentCaseId: input.parentCaseId ?? null });
+        const blockedByCaseKeyMap = await resolveBlockerCaseKeys(tx, {
+          companyId: input.companyId,
+          pipelineId: input.pipelineId,
+          blockedByCaseKeys: input.blockedByCaseKeys ?? [],
+        });
         const blockedByCaseIds = await validateBlockerSet(tx, {
           companyId: input.companyId,
           caseId: "__new_case__",
-          blockedByCaseIds: input.blockedByCaseIds ?? [],
+          blockedByCaseIds: [
+            ...(input.blockedByCaseIds ?? []),
+            ...Array.from(blockedByCaseKeyMap.values()),
+          ],
         });
         const stage = input.stageKey
           ? await getStageByKeyOrThrow(tx, input.pipelineId, input.stageKey)
@@ -1336,7 +1382,10 @@ export function pipelineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeu
             caseId: inserted.id,
             type: "blockers_set",
             actor: input.actor,
-            payload: { blockedByCaseIds },
+            payload: {
+              blockedByCaseIds,
+              ...(input.blockedByCaseKeys?.length ? { blockedByCaseKeys: input.blockedByCaseKeys } : {}),
+            },
           });
         }
         return { case: inserted, created: true };
@@ -1354,38 +1403,129 @@ export function pipelineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeu
         stageKey?: string | null;
         parentCaseId?: string | null;
         blockedByCaseIds?: string[];
+        blockedByCaseKeys?: string[];
       }>;
       actor: PipelineActor;
     }) {
       if (input.items.length > MAX_BATCH_INGEST) {
         throw unprocessable("Batch ingest supports at most 200 items", { code: "validation" });
       }
+      type BatchIngestResult =
+        | Awaited<ReturnType<typeof service.ingestCase>> & { ok: true }
+        | { ok: false; caseKey: string | null; error: Record<string, unknown> };
       const seen = new Set<string>();
-      return Promise.all(input.items.map(async (item) => {
+      const results = new Array<BatchIngestResult | undefined>(input.items.length);
+      const pending = new Set<number>();
+      const firstBatchKeyIndexes = new Map<string, number>();
+      for (const [index, item] of input.items.entries()) {
         const key = item.caseKey ?? null;
         if (key) {
+          try {
+            assertCaseKey(key);
+          } catch (error) {
+            results[index] = { ok: false as const, caseKey: key, error: pipelineBatchError(error, "validation") };
+            continue;
+          }
           if (seen.has(key)) {
-            return { ok: false as const, caseKey: key, error: { code: "duplicate_batch_key" } };
+            results[index] = { ok: false as const, caseKey: key, error: { code: "duplicate_batch_key" } };
+            continue;
           }
           seen.add(key);
+          firstBatchKeyIndexes.set(key, index);
         }
+        pending.add(index);
+      }
+
+      const referencedKeys = [...new Set(input.items.flatMap((item) => item.blockedByCaseKeys ?? []))];
+      const resolvedCaseIdsByKey = new Map<string, string>();
+      for (const key of referencedKeys) {
         try {
-          const result = await service.ingestCase({
-            ...item,
-            companyId: input.companyId,
-            pipelineId: input.pipelineId,
-            actor: input.actor,
+          assertCaseKey(key);
+        } catch {
+          // Leave invalid keys unresolved so only rows that reference them fail below.
+        }
+      }
+      const validReferencedKeys = referencedKeys.filter((key) => {
+        try {
+          assertCaseKey(key);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+      if (validReferencedKeys.length > 0) {
+        const rows = await db
+          .select({ id: pipelineCases.id, caseKey: pipelineCases.caseKey })
+          .from(pipelineCases)
+          .where(and(
+            eq(pipelineCases.companyId, input.companyId),
+            eq(pipelineCases.pipelineId, input.pipelineId),
+            inArray(pipelineCases.caseKey, validReferencedKeys),
+          ));
+        for (const row of rows) resolvedCaseIdsByKey.set(row.caseKey, row.id);
+      }
+
+      while (pending.size > 0) {
+        let progressed = false;
+        for (const index of [...pending]) {
+          const item = input.items[index]!;
+          const missingKeys = (item.blockedByCaseKeys ?? []).filter((key) => !resolvedCaseIdsByKey.has(key));
+          if (missingKeys.length > 0) continue;
+
+          pending.delete(index);
+          progressed = true;
+          const key = item.caseKey ?? null;
+          try {
+            const result = await service.ingestCase({
+              ...item,
+              companyId: input.companyId,
+              pipelineId: input.pipelineId,
+              actor: input.actor,
+            });
+            if (key) resolvedCaseIdsByKey.set(key, result.case.id);
+            results[index] = { ok: true as const, ...result };
+          } catch (error) {
+            results[index] = { ok: false as const, caseKey: key, error: pipelineBatchError(error) };
+          }
+        }
+        if (progressed) continue;
+
+        const stuck = new Set(pending);
+        for (const index of [...stuck]) {
+          const item = input.items[index]!;
+          const key = item.caseKey ?? null;
+          const missingKeys = (item.blockedByCaseKeys ?? []).filter((blockedByCaseKey) => !resolvedCaseIdsByKey.has(blockedByCaseKey));
+          const cyclicKeys = missingKeys.filter((blockedByCaseKey) => {
+            const blockerIndex = firstBatchKeyIndexes.get(blockedByCaseKey);
+            return blockerIndex !== undefined && stuck.has(blockerIndex);
           });
-          return { ok: true as const, ...result };
-        } catch (error) {
-          const httpError = error as { status?: number; message?: string; details?: unknown };
-          return {
+          results[index] = {
             ok: false as const,
             caseKey: key,
-            error: { status: httpError.status ?? 500, message: httpError.message ?? "Unknown error", details: httpError.details },
+            error: cyclicKeys.length === missingKeys.length
+              ? {
+                status: 409,
+                message: "Pipeline blocker cycle detected",
+                details: { code: "blocker_cycle", blockedByCaseKeys: missingKeys },
+              }
+              : {
+                status: 404,
+                message: "Pipeline blocker case key not found",
+                details: {
+                  code: "blocker_case_key_not_found",
+                  missingCaseKeys: missingKeys.filter((blockedByCaseKey) => !cyclicKeys.includes(blockedByCaseKey)),
+                },
+              },
           };
+          pending.delete(index);
         }
-      }));
+      }
+
+      return results.map((result, index) => result ?? {
+        ok: false as const,
+        caseKey: input.items[index]?.caseKey ?? null,
+        error: { status: 500, message: "Unknown error", details: { code: "unknown" } },
+      });
     },
 
     async patchCaseContent(input: {
