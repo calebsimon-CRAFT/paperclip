@@ -221,7 +221,11 @@ describe("routine routes", () => {
       .query({ projectId });
 
     expect(res.status).toBe(200);
-    expect(mockRoutineService.list).toHaveBeenCalledWith(companyId, { projectId });
+    expect(mockRoutineService.list).toHaveBeenCalledWith(companyId, {
+      projectId,
+      originKind: undefined,
+      excludeOriginKinds: [],
+    });
   });
 
   it("lists routine revisions for a board member in newest-first service order", async () => {
