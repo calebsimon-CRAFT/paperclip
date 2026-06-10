@@ -7,12 +7,13 @@ import { expect, test } from "@playwright/test";
 test("captures the application delete confirm dialog", async ({ page }) => {
   await page.goto("/dashboard");
 
-  const companies = await page.request.get("/api/companies").then((r) => r.json());
-  const list = Array.isArray(companies) ? companies : companies.companies;
-  const company = list?.[0];
-  expect(company?.id, "expected a seeded company").toBeTruthy();
+  const companyRes = await page.request.post("/api/companies", {
+    data: { name: `PAP-10817 delete dialog ${Date.now()}` },
+  });
+  expect(companyRes.ok(), `create company failed ${companyRes.status()}: ${await companyRes.text()}`).toBe(true);
+  const company = await companyRes.json();
   const companyId: string = company.id;
-  const prefix: string = company.issuePrefix;
+  const prefix: string = company.issuePrefix ?? company.prefix ?? company.urlKey ?? "E2E";
 
   const created = await page.request.post(`/api/companies/${companyId}/tools/applications`, {
     data: { name: "Demo Notes", description: "Sample MCP application", type: "mcp_http" },
@@ -58,4 +59,6 @@ test("captures the application delete confirm dialog", async ({ page }) => {
   const guardedDialog = page.getByRole("dialog");
   await expect(guardedDialog.getByText("delete is blocked while connections exist")).toBeVisible();
   await guardedDialog.screenshot({ path: "test-results/pap-10817-delete-dialog-guarded.png" });
+
+  await page.request.delete(`/api/companies/${companyId}`);
 });
