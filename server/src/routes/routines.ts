@@ -100,13 +100,13 @@ export function routineRoutes(
   }
 
   function splitIntakeFormRunInput(input: Record<string, unknown>) {
-    const payload: Record<string, unknown> = {};
+    const payload: Record<string, string | number | boolean> = {};
     const control: Record<string, unknown> = {};
 
     for (const [key, value] of Object.entries(input)) {
       if (intakeFormControlFields.has(key)) {
         control[key] = value;
-      } else {
+      } else if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
         payload[key] = value;
       }
     }
@@ -379,7 +379,7 @@ export function routineRoutes(
       ? control.payload as Record<string, unknown> | null
       : payload;
     const caseFields = Object.hasOwn(control, "caseFields")
-      ? (control.caseFields as Record<string, unknown> | null)
+      ? (control.caseFields as Record<string, string | number | boolean> | null)
       : payload;
     const run = await svc.runRoutine(routine.id, {
       ...control,
