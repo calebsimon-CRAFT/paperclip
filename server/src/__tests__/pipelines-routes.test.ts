@@ -966,6 +966,62 @@ describeEmbeddedPostgres("pipeline routes", () => {
       .expect(200);
   });
 
+  it("prevents agents from using case links to mutate another agent's issue indirectly", async () => {
+    const company = await seedCompany();
+    const [agent, otherAgent] = await db.insert(agents).values([
+      {
+        companyId: company.id,
+        name: "Pipeline Agent",
+        role: "engineer",
+        status: "idle",
+      },
+      {
+        companyId: company.id,
+        name: "Other Agent",
+        role: "engineer",
+        status: "idle",
+      },
+    ]).returning();
+    const http = request(app(boardActor));
+    const pipeline = await http
+      .post(`/api/companies/${company.id}/pipelines`)
+      .send({ key: "link-authz", name: "Link authz" })
+      .expect(201);
+    const created = await http
+      .post(`/api/pipelines/${pipeline.body.id}/cases`)
+      .send({ caseKey: "link-target", title: "Link target" })
+      .expect(201);
+    const [otherAgentIssue] = await db.insert(issues).values({
+      companyId: company.id,
+      title: "Other-agent issue",
+      status: "blocked",
+      priority: "medium",
+      assigneeAgentId: otherAgent!.id,
+    }).returning();
+    const agentActor: Express.Request["actor"] = {
+      type: "agent",
+      agentId: agent!.id,
+      companyId: company.id,
+      runId: randomUUID(),
+      source: "agent_key",
+    };
+    const agentHttp = request(app(agentActor));
+
+    await agentHttp
+      .post(`/api/cases/${created.body.case.id}/issue-links`)
+      .send({ issueId: otherAgentIssue!.id, role: "work" })
+      .expect(403);
+
+    const link = await http
+      .post(`/api/cases/${created.body.case.id}/issue-links`)
+      .send({ issueId: otherAgentIssue!.id, role: "work" })
+      .expect(201);
+
+    await agentHttp
+      .delete(`/api/cases/${created.body.case.id}/issue-links/${link.body.id}`)
+      .expect(403);
+  });
+
   it("resequences stages when inserting at an occupied position", async () => {
     const company = await seedCompany();
     const http = request(app(boardActor));
