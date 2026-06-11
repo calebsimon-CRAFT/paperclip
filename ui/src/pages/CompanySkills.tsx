@@ -6,7 +6,6 @@ import type {
   Agent,
   CatalogSkill,
   CatalogSkillFileDetail,
-  CompanySkillComment,
   CompanySkillCompatibility,
   CompanySkillCreateRequest,
   CompanySkillDetail,
@@ -32,6 +31,7 @@ import { MarkdownEditor } from "../components/MarkdownEditor";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { CopyText } from "../components/CopyText";
 import { Identity } from "../components/Identity";
+import { AgentIcon } from "../components/AgentIconPicker";
 import { useAdapterCapabilities } from "../adapters/use-adapter-capabilities";
 import {
   Dialog,
@@ -86,9 +86,9 @@ import {
   LayoutGrid,
   Link2,
   Lock,
-  MessageSquare,
   ExternalLink,
   Paperclip,
+  Pause,
   Pencil,
   Plus,
   Copy,
@@ -537,7 +537,9 @@ function cardDescriptionText(raw: string | null | undefined): string {
   const cleaned = (raw ?? "")
     .replace(/^[\s>#*_\-`>]+/, "")
     .trim();
-  return cleaned.length >= 3 ? cleaned : "No description yet.";
+  // Empty descriptions render as a blank line on cards so spacing stays
+  // consistent across the grid (PAP-10907).
+  return cleaned.length >= 3 ? cleaned : "";
 }
 
 // ---------------------------------------------------------------------------
@@ -823,7 +825,7 @@ function SkillCard({ card, onOpen }: { card: DiscoveryCard; onOpen: (card: Disco
       type="button"
       onClick={() => onOpen(card)}
       className={cn(
-        "group flex h-full min-h-[11.5rem] flex-col rounded-md border border-border p-4 text-left transition-colors hover:border-foreground/30 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "group flex h-full min-h-[11.5rem] flex-col rounded-md border border-border p-4 text-left transition-colors hover:border-primary hover:bg-accent/30 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         card.required && "bg-muted/30",
       )}
     >
@@ -844,38 +846,41 @@ function SkillCard({ card, onOpen }: { card: DiscoveryCard; onOpen: (card: Disco
         </div>
       ) : null}
 
-      <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+      {/* Always reserve two lines so cards line up even without a description. */}
+      <p className="mt-2 line-clamp-2 min-h-8 text-xs text-muted-foreground">
         {cardDescriptionText(card.description)}
       </p>
 
       <div className="mt-auto pt-3">
+        {/* Stats: installed agents · stars · forks — stars/forks only when > 0. */}
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-          {card.required ? (
-            <span>{card.agentCount} agents using</span>
-          ) : (
+          <span>{card.agentCount} {card.agentCount === 1 ? "agent" : "agents"}</span>
+          {card.starCount > 0 ? (
             <>
+              <span aria-hidden="true">·</span>
               <SkillStat icon={Star} value={String(card.starCount)} />
-              <span aria-hidden="true">·</span>
-              <span>{card.agentCount} agents</span>
-              <span aria-hidden="true">·</span>
-              <SkillStat icon={GitFork} value={`${card.forkCount}`} />
             </>
-          )}
+          ) : null}
+          {card.forkCount > 0 ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <SkillStat icon={GitFork} value={String(card.forkCount)} />
+            </>
+          ) : null}
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-1">
+          {card.installed ? (
+            <span className="inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-300">
+              Installed
+            </span>
+          ) : null}
           {card.categories.slice(0, 2).map((category) => (
             <SkillCategoryChip key={category} label={category} />
           ))}
-          <span className="ml-auto" />
           {card.required ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[10px] text-muted-foreground">
+            <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[10px] text-muted-foreground">
               <Lock className="h-3 w-3" aria-hidden="true" />
-              Required
-            </span>
-          ) : card.installed ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-300">
-              <Check className="h-3 w-3" aria-hidden="true" />
-              Installed
+              Bundled
             </span>
           ) : null}
         </div>
@@ -976,10 +981,13 @@ export function DiscoveryGrid({
   scanStatus: string | null;
 }) {
   return (
-    <div className="flex min-h-[calc(100vh-12rem)]">
+    // On desktop the store is bounded to the viewport so the category sidebar
+    // and the results pane each scroll independently (PAP-10907). Mobile keeps
+    // the natural page flow.
+    <div className="flex min-h-[calc(100vh-12rem)] md:h-[calc(100dvh-6rem)] md:min-h-0 md:overflow-hidden">
       {/* Secondary category sidebar — the main app nav collapses to a rail while
           this is present (handled in Layout). */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-border md:flex">
+      <aside className="hidden w-60 shrink-0 flex-col overflow-hidden border-r border-border md:flex">
         <div className="border-b border-border px-4 py-4">
           <h2 className="text-sm font-semibold text-foreground">Skills Store</h2>
           <p className="text-xs text-muted-foreground">Discover, install, fork, share</p>
@@ -987,7 +995,7 @@ export function DiscoveryGrid({
         <div className="px-4 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           Categories
         </div>
-        <div className="flex-1 overflow-auto pb-4">
+        <div className="min-h-0 flex-1 overflow-y-auto pb-4">
           <CategoryNav
             categories={categories}
             total={categoryTotal}
@@ -997,16 +1005,16 @@ export function DiscoveryGrid({
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Search + sort + actions */}
         <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
-          <div className="flex min-w-[12rem] flex-1 items-center gap-2 rounded-md border border-border px-2.5 py-1.5">
+          <div className="flex h-9 min-w-[12rem] flex-1 items-center gap-2 rounded-md border border-border px-2.5">
             <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             <input
               value={search}
               onChange={(event) => onSearchChange(event.target.value)}
               placeholder="Search skills, authors, categories…"
-              className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              className="h-full w-full bg-transparent text-base outline-none placeholder:text-muted-foreground sm:text-sm"
             />
           </div>
           <DropdownMenu>
@@ -1107,14 +1115,13 @@ export function DiscoveryGrid({
               <TabsTrigger value="bundled" className="px-3">
                 <span>Bundled</span>
                 <span className="ml-1.5 text-[11px] text-muted-foreground">{tabCounts.bundled}</span>
-                <span className="ml-1 text-[11px] text-muted-foreground">(required)</span>
               </TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
 
         {/* Grid body */}
-        <div className="flex-1 overflow-auto p-4">
+        <div className="min-h-0 flex-1 overflow-auto p-4">
           {scanStatus ? <p className="mb-3 text-xs text-muted-foreground">{scanStatus}</p> : null}
           {loading ? (
             <PageSkeleton variant="list" />
@@ -1958,6 +1965,16 @@ function InstallPreviewDialog({
   );
 }
 
+type AttachAgentOption = {
+  id: string;
+  name: string;
+  adapterType: string;
+  supportsSkills: boolean;
+  required: boolean;
+  icon: string | null;
+  paused: boolean;
+};
+
 function AttachAgentsPopover({
   open,
   onOpenChange,
@@ -1967,15 +1984,17 @@ function AttachAgentsPopover({
   selectedVersionId,
   pending,
   onSubmit,
+  fullWidth = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  agents: Array<{ id: string; name: string; adapterType: string; supportsSkills: boolean; required: boolean }>;
+  agents: AttachAgentOption[];
   attachedAgentIds: string[];
   versions: CompanySkillVersion[];
   selectedVersionId: string | null;
   pending: boolean;
   onSubmit: (nextIds: string[], versionId: string | null) => void;
+  fullWidth?: boolean;
 }) {
   const [filter, setFilter] = useState("");
   const [draft, setDraft] = useState<Set<string>>(new Set(attachedAgentIds));
@@ -1989,21 +2008,26 @@ function AttachAgentsPopover({
     }
   }, [open, attachedAgentIds, selectedVersionId]);
 
-  const filtered = agents.filter((agent) => agent.name.toLowerCase().includes(filter.toLowerCase()));
+  // Checked agents float to the top of the list (PAP-10907); within each group
+  // we keep a stable alphabetical order.
+  const filtered = agents
+    .filter((agent) => agent.name.toLowerCase().includes(filter.toLowerCase()))
+    .sort((a, b) => {
+      const aChecked = draft.has(a.id);
+      const bChecked = draft.has(b.id);
+      if (aChecked !== bChecked) return aChecked ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
   const eligible = agents.filter((agent) => agent.supportsSkills);
   const sortedVersions = [...versions].sort((a, b) => b.revisionNumber - a.revisionNumber);
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-          aria-label="Attach to agents"
-        >
-          <Pencil className="h-3 w-3" />
-          Edit
-        </button>
+        <Button size="sm" className={cn(fullWidth && "w-full")}>
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
+          Add to agent
+        </Button>
       </PopoverTrigger>
       <PopoverContent className="w-80 p-0" align="end">
         <div className="border-b border-border px-3 py-2">
@@ -2060,8 +2084,17 @@ function AttachAgentsPopover({
                       });
                     }}
                   />
+                  <AgentIcon icon={agent.icon} className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="flex min-w-0 flex-col">
-                    <span className="truncate">{agent.name}</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate">{agent.name}</span>
+                      {agent.paused ? (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-amber-500">
+                          <Pause className="h-2.5 w-2.5" aria-hidden="true" />
+                          Paused
+                        </span>
+                      ) : null}
+                    </span>
                     <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
                       {agent.adapterType}
                       {agent.required ? " · required" : ""}
@@ -2304,13 +2337,12 @@ function SkillList({
   );
 }
 
-type SkillDetailTab = "overview" | "files" | "versions" | "comments" | "agents";
+type SkillDetailTab = "overview" | "files" | "versions" | "agents";
 
 const SKILL_DETAIL_TABS: Array<{ value: SkillDetailTab; label: string; icon: typeof FileText }> = [
   { value: "overview", label: "Overview", icon: FileText },
   { value: "files", label: "Files", icon: FolderOpen },
   { value: "versions", label: "Versions", icon: History },
-  { value: "comments", label: "Comments", icon: MessageSquare },
   { value: "agents", label: "Agents", icon: Users },
 ];
 
@@ -2463,75 +2495,7 @@ function SkillVersionDiffDialog({
   );
 }
 
-function SkillCommentRow({
-  comment,
-  onUpdate,
-  updatePending,
-  onDelete,
-  deletePending,
-}: {
-  comment: CompanySkillComment;
-  onUpdate: (body: string) => void;
-  updatePending: boolean;
-  onDelete: () => void;
-  deletePending: boolean;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(comment.body);
-  const deleted = Boolean(comment.deletedAt);
-
-  useEffect(() => {
-    if (!editing) setDraft(comment.body);
-  }, [comment.body, editing]);
-
-  return (
-    <article className="border-b border-border py-3 last:border-b-0">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="text-xs text-muted-foreground">
-          {comment.authorAgentId ? "Agent" : comment.authorUserId ? "Board" : "System"} · {relativeTime(comment.createdAt)}
-        </div>
-        {!deleted ? (
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" onClick={() => setEditing((value) => !value)} disabled={updatePending || deletePending}>
-              <Pencil className="mr-1 h-3 w-3" />
-              {editing ? "Cancel" : "Edit"}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={onDelete} disabled={deletePending || updatePending}>
-              <Trash2 className="mr-1 h-3 w-3" />
-              Delete
-            </Button>
-          </div>
-        ) : null}
-      </div>
-      {deleted ? (
-        <MarkdownBody className="prose-sm" softBreaks>_Deleted comment_</MarkdownBody>
-      ) : editing ? (
-        <div className="space-y-2">
-          <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} className="min-h-24" />
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setEditing(false)} disabled={updatePending}>
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => {
-                onUpdate(draft.trim());
-                setEditing(false);
-              }}
-              disabled={updatePending || draft.trim().length === 0}
-            >
-              {updatePending ? "Saving..." : "Save"}
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <MarkdownBody className="prose-sm" softBreaks>{comment.body}</MarkdownBody>
-      )}
-    </article>
-  );
-}
-
-function SkillDetailPage({
+export function SkillDetailPage({
   detail,
   loading,
   activeTab,
@@ -2549,17 +2513,6 @@ function SkillDetailPage({
   savePending,
   versions,
   versionsLoading,
-  comments,
-  commentsLoading,
-  commentDraft,
-  setCommentDraft,
-  onCreateComment,
-  createCommentPending,
-  onUpdateComment,
-  updateCommentPending,
-  onDeleteComment,
-  deleteCommentPending,
-  relatedSkills,
   attachAgents,
   attachPopoverOpen,
   setAttachPopoverOpen,
@@ -2599,18 +2552,7 @@ function SkillDetailPage({
   savePending: boolean;
   versions: CompanySkillVersion[];
   versionsLoading: boolean;
-  comments: CompanySkillComment[];
-  commentsLoading: boolean;
-  commentDraft: string;
-  setCommentDraft: (value: string) => void;
-  onCreateComment: () => void;
-  createCommentPending: boolean;
-  onUpdateComment: (commentId: string, body: string) => void;
-  updateCommentPending: boolean;
-  onDeleteComment: (commentId: string) => void;
-  deleteCommentPending: boolean;
-  relatedSkills: CompanySkillListItem[];
-  attachAgents: Array<{ id: string; name: string; adapterType: string; supportsSkills: boolean; required: boolean }>;
+  attachAgents: AttachAgentOption[];
   attachPopoverOpen: boolean;
   setAttachPopoverOpen: (open: boolean) => void;
   onSubmitAttach: (ids: string[], versionId: string | null) => void;
@@ -2651,6 +2593,8 @@ function SkillDetailPage({
   const subtitleText = skill.tagline || skill.description
     ? cardDescriptionText(skill.tagline ?? skill.description)
     : source.label;
+  // Look up the richer agent record (icon, paused) for agents using this skill.
+  const attachAgentMetaById = new Map(attachAgents.map((agent) => [agent.id, agent]));
 
   function renderFilesBody() {
     return (
@@ -2827,82 +2771,62 @@ function SkillDetailPage({
     );
   }
 
-  function renderCommentsBody() {
-    return (
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <Textarea
-            value={commentDraft}
-            onChange={(event) => setCommentDraft(event.target.value)}
-            placeholder="Add a comment"
-            className="min-h-24"
-          />
-          <div className="flex justify-end">
-            <Button size="sm" onClick={onCreateComment} disabled={createCommentPending || commentDraft.trim().length === 0}>
-              {createCommentPending ? "Posting..." : "Post comment"}
-            </Button>
-          </div>
-        </div>
-        <div className="border-y border-border">
-          {commentsLoading ? (
-            <PageSkeleton variant="list" />
-          ) : comments.length === 0 ? (
-            <div className="py-6 text-sm text-muted-foreground">No comments yet.</div>
-          ) : (
-            comments.map((comment) => (
-              <SkillCommentRow
-                key={comment.id}
-                comment={comment}
-                updatePending={updateCommentPending}
-                deletePending={deleteCommentPending}
-                onUpdate={(body) => onUpdateComment(comment.id, body)}
-                onDelete={() => onDeleteComment(comment.id)}
-              />
-            ))
-          )}
-        </div>
-      </div>
-    );
-  }
-
   function renderAgentsBody() {
-    const attachedIds = new Set(skill.usedByAgents.map((agent) => agent.id));
+    // Only the agents actually using this skill are listed (PAP-10907); the
+    // multi-selector behind "Add to agent" is where you attach more.
+    const attached = skill.usedByAgents;
     return (
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">
-            {skill.usedByAgents.length} {skill.usedByAgents.length === 1 ? "agent" : "agents"} attached
+            {attached.length} {attached.length === 1 ? "agent" : "agents"} attached
             {selectedVersion ? ` · ${versionLabel(selectedVersion)}` : " · Latest"}
           </p>
           <AttachAgentsPopover
             open={attachPopoverOpen}
             onOpenChange={setAttachPopoverOpen}
             agents={attachAgents}
-            attachedAgentIds={skill.usedByAgents.map((agent) => agent.id)}
+            attachedAgentIds={attached.map((agent) => agent.id)}
             versions={versions}
             selectedVersionId={currentVersionSelection(skill)}
             pending={attachPending}
             onSubmit={onSubmitAttach}
           />
         </div>
-        <div className="border-y border-border">
-          {attachAgents.map((agent) => (
-            <div key={agent.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border py-3 text-sm last:border-b-0">
-              <div className="min-w-0">
-                <Identity name={agent.name} size="sm" />
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {agent.adapterType}{agent.supportsSkills ? "" : " · skills not supported"}
+        {attached.length === 0 ? (
+          <div className="rounded-md border border-dashed border-border py-8 text-center text-sm text-muted-foreground">
+            No agents are using this skill yet. Use “Add to agent” to attach it.
+          </div>
+        ) : (
+          <div className="border-y border-border">
+            {attached.map((agent) => {
+              const meta = attachAgentMetaById.get(agent.id);
+              return (
+                <div key={agent.id} className="flex items-center gap-3 border-b border-border py-3 text-sm last:border-b-0">
+                  <AgentIcon icon={meta?.icon ?? null} className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate font-medium">{agent.name}</span>
+                      {meta?.paused ? (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-amber-500">
+                          <Pause className="h-2.5 w-2.5" aria-hidden="true" />
+                          Paused
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">{agent.adapterType}</div>
+                  </div>
+                  <Link
+                    to={`/agents/${agent.urlKey}/skills`}
+                    className="shrink-0 text-xs text-muted-foreground no-underline hover:text-foreground"
+                  >
+                    View
+                  </Link>
                 </div>
-              </div>
-              <span className={cn("text-xs", attachedIds.has(agent.id) ? "text-foreground" : "text-muted-foreground")}>
-                {attachedIds.has(agent.id) ? "Attached" : "Not attached"}
-              </span>
-            </div>
-          ))}
-          {attachAgents.length === 0 ? (
-            <div className="py-6 text-sm text-muted-foreground">No agents in this company yet.</div>
-          ) : null}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   }
@@ -2911,11 +2835,9 @@ function SkillDetailPage({
     ? renderFilesBody()
     : activeTab === "versions"
       ? renderVersionsBody()
-      : activeTab === "comments"
-        ? renderCommentsBody()
-        : activeTab === "agents"
-          ? renderAgentsBody()
-          : renderOverviewBody();
+      : activeTab === "agents"
+        ? renderAgentsBody()
+        : renderOverviewBody();
 
   return (
     <div className="min-h-[calc(100vh-12rem)]">
@@ -2947,11 +2869,25 @@ function SkillDetailPage({
                 size={44}
               />
               <div className="min-w-0">
-                <h1 className="truncate text-2xl font-semibold">{detail.name}</h1>
-                <p className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                  <SourceIcon className="h-3.5 w-3.5" />
-                  <span className="truncate">{subtitleText}</span>
-                </p>
+                <div className="flex min-w-0 items-center gap-2">
+                  <h1 className="truncate text-2xl font-semibold">{detail.name}</h1>
+                  {/* Source icon sits right after the title; the tooltip names
+                      where the skill was installed from (PAP-10907). */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
+                        aria-label={`Installed from ${source.label}`}
+                      >
+                        <SourceIcon className="h-4 w-4" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>Installed from {source.label}</TooltipContent>
+                  </Tooltip>
+                </div>
+                {subtitleText ? (
+                  <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{subtitleText}</p>
+                ) : null}
               </div>
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -2971,27 +2907,42 @@ function SkillDetailPage({
               ) : null}
             </div>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={onToggleStar} disabled={starPending}>
-              <Star className={cn("mr-1.5 h-3.5 w-3.5", detail.starredByCurrentActor && "fill-current text-yellow-400")} />
-              {detail.starredByCurrentActor ? "Starred" : "Star"}
-              <span className="ml-1 text-xs text-muted-foreground">{detail.starCount}</span>
-            </Button>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground">
-                  <Download className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span>{detail.installCount}</span>
-                  <span className="hidden sm:inline">{detail.installCount === 1 ? "install" : "installs"}</span>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>Times this skill has been installed or forked.</TooltipContent>
-            </Tooltip>
-            <Button variant="ghost" size="sm" onClick={onFork}>
-              <GitFork className="mr-1.5 h-3.5 w-3.5" />
-              Fork
-              <span className="ml-1 text-xs text-muted-foreground">{detail.forkCount}</span>
-            </Button>
+          {/* GitHub-style social proof, top-right: installs · stars · fork.
+              Installs is a read-only stat; stars and fork are interactive. */}
+          <div className="flex flex-wrap items-center justify-end gap-1">
+            <div className="flex items-center overflow-hidden rounded-md border border-border">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground">
+                    <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span className="font-medium text-foreground">{detail.installCount}</span>
+                    <span className="hidden sm:inline">{detail.installCount === 1 ? "install" : "installs"}</span>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>Times this skill has been installed or forked.</TooltipContent>
+              </Tooltip>
+              <button
+                type="button"
+                onClick={onToggleStar}
+                disabled={starPending}
+                className="inline-flex items-center gap-1.5 border-l border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground disabled:opacity-50"
+                title={detail.starredByCurrentActor ? "Unstar this skill" : "Star this skill"}
+              >
+                <Star className={cn("h-3.5 w-3.5", detail.starredByCurrentActor && "fill-current text-yellow-400")} />
+                <span className="hidden sm:inline">{detail.starredByCurrentActor ? "Starred" : "Star"}</span>
+                <span className="font-medium text-foreground">{detail.starCount}</span>
+              </button>
+              <button
+                type="button"
+                onClick={onFork}
+                className="inline-flex items-center gap-1.5 border-l border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+                title="Fork this skill"
+              >
+                <GitFork className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Fork</span>
+                <span className="font-medium text-foreground">{detail.forkCount}</span>
+              </button>
+            </div>
             {detail.sourceType === "github" ? (
               <>
                 <Button variant="ghost" size="sm" onClick={onCheckUpdates} disabled={checkUpdatesPending || updateStatusLoading}>
@@ -3006,10 +2957,6 @@ function SkillDetailPage({
                 ) : null}
               </>
             ) : null}
-            <Button variant="ghost" size="sm" onClick={onDelete} disabled={deletePending} title={detail.usedByAgents.length > 0 ? "Detach this skill from all agents before removing it." : undefined}>
-              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-              {deletePending ? "Removing..." : "Remove"}
-            </Button>
           </div>
         </div>
       </div>
@@ -3017,14 +2964,15 @@ function SkillDetailPage({
       <div className="grid gap-6 px-4 py-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
         <main className="min-w-0">
           <Tabs value={activeTab} onValueChange={(value) => onTabChange(value as SkillDetailTab)}>
-            <TabsList variant="line" className="mb-5 w-full max-w-full justify-start overflow-x-auto p-0 [scrollbar-width:none]">
+            {/* Underlined tab strip: the bottom padding keeps the active-tab
+                underline inside the horizontal-scroll clip box (PAP-10907). */}
+            <TabsList variant="line" className="mb-5 w-full max-w-full justify-start overflow-x-auto border-b border-border p-0 pb-1.5 [scrollbar-width:none]">
               {SKILL_DETAIL_TABS.map((tab) => {
                 const Icon = tab.icon;
                 return (
                   <TabsTrigger key={tab.value} value={tab.value} className="px-3">
                     <Icon className="mr-1.5 h-3.5 w-3.5" />
                     {tab.label}
-                    {tab.value === "comments" ? <span className="ml-1.5 text-[11px] text-muted-foreground">{comments.length}</span> : null}
                   </TabsTrigger>
                 );
               })}
@@ -3035,12 +2983,9 @@ function SkillDetailPage({
 
         <aside className="min-w-0 space-y-6 border-t border-border pt-4 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0">
           <section>
-            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Attach to agent</div>
-            <div className="space-y-2">
-              <div className="text-sm">
-                {detail.usedByAgents.length === 0 ? "No agents attached" : `${detail.usedByAgents.length} attached`}
-              </div>
-              <div className="text-xs text-muted-foreground">{selectedVersion ? versionLabel(selectedVersion) : "Latest"}</div>
+            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Agents</div>
+            <div className="space-y-3">
+              {/* Big primary action opens the agent multi-selector (PAP-10907). */}
               <AttachAgentsPopover
                 open={attachPopoverOpen}
                 onOpenChange={setAttachPopoverOpen}
@@ -3050,33 +2995,40 @@ function SkillDetailPage({
                 selectedVersionId={currentVersionSelection(detail)}
                 pending={attachPending}
                 onSubmit={onSubmitAttach}
+                fullWidth
               />
+              {detail.usedByAgents.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No agents attached yet.</p>
+              ) : (
+                <div className="space-y-0.5">
+                  {/* Preview up to three attached agents, then summarise the rest. */}
+                  {detail.usedByAgents.slice(0, 3).map((agent) => {
+                    const meta = attachAgentMetaById.get(agent.id);
+                    return (
+                      <Link
+                        key={agent.id}
+                        to={`/agents/${agent.urlKey}/skills`}
+                        className="flex items-center gap-2 rounded-md px-1.5 py-1 text-sm no-underline hover:bg-accent/40"
+                      >
+                        <AgentIcon icon={meta?.icon ?? null} className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 flex-1 truncate text-foreground">{agent.name}</span>
+                        {meta?.paused ? (
+                          <Pause className="h-3 w-3 shrink-0 text-amber-500" aria-label="Paused" />
+                        ) : null}
+                      </Link>
+                    );
+                  })}
+                  {detail.usedByAgents.length > 3 ? (
+                    <p className="px-1.5 pt-0.5 text-xs text-muted-foreground">
+                      and {detail.usedByAgents.length - 3} more
+                    </p>
+                  ) : null}
+                </div>
+              )}
             </div>
           </section>
 
-          <section>
-            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Related skills</div>
-            {relatedSkills.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No related skills yet.</p>
-            ) : (
-              <div className="space-y-1">
-                {relatedSkills.map((skill) => (
-                  <Link
-                    key={skill.id}
-                    to={skillRoute(skill.id)}
-                    className="block min-w-0 rounded-md px-2 py-1.5 text-sm text-muted-foreground no-underline hover:bg-accent/40 hover:text-foreground"
-                  >
-                    <span className="block line-clamp-1 break-words font-medium">{skill.name}</span>
-                    <span className="block line-clamp-2 break-words text-xs leading-snug">{skill.tagline ?? skill.description ?? skill.sourceLabel}</span>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* Sharing scope only surfaces when the viewer can edit it (round 2 #3).
-              Sits below Attach/Related so the primary action lives at the top
-              of the rail (round 2 #2). */}
+          {/* Sharing scope only surfaces when the viewer can edit it (round 2 #3). */}
           <section>
             <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Sharing</div>
             <div className="space-y-2">
@@ -3111,6 +3063,20 @@ function SkillDetailPage({
                   <span className="mt-0.5 block text-xs">Coming later.</span>
                 </span>
               </button>
+              {/* Remove lives in the sidebar and only appears when the viewer can
+                  edit (and therefore remove) the skill (PAP-10907). */}
+              {detail.editable ? (
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  disabled={deletePending}
+                  title={detail.usedByAgents.length > 0 ? "Detach this skill from all agents before removing it." : undefined}
+                  className="mt-1 flex w-full items-center gap-2 rounded-md border border-destructive/40 px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                  {deletePending ? "Removing…" : "Remove skill"}
+                </button>
+              ) : null}
             </div>
           </section>
         </aside>
@@ -3167,7 +3133,7 @@ function SkillPane({
   deletePending: boolean;
   onSave: () => void;
   savePending: boolean;
-  attachAgents: Array<{ id: string; name: string; adapterType: string; supportsSkills: boolean; required: boolean }>;
+  attachAgents: AttachAgentOption[];
   attachPopoverOpen: boolean;
   setAttachPopoverOpen: (open: boolean) => void;
   versions: CompanySkillVersion[];
@@ -3454,7 +3420,6 @@ export function CompanySkills() {
   const [viewMode, setViewMode] = useState<"preview" | "code">("preview");
   const [editMode, setEditMode] = useState(false);
   const [draft, setDraft] = useState("");
-  const [commentDraft, setCommentDraft] = useState("");
   const [displayedDetail, setDisplayedDetail] = useState<CompanySkillDetail | null>(null);
   const [displayedFile, setDisplayedFile] = useState<CompanySkillFileDetail | null>(null);
   const [scanStatusMessage, setScanStatusMessage] = useState<string | null>(null);
@@ -3497,7 +3462,7 @@ export function CompanySkills() {
   const discoveryTab: DiscoveryTab = DISCOVERY_TABS.includes(tabParam as DiscoveryTab)
     ? (tabParam as DiscoveryTab)
     : "all";
-  const detailTab: SkillDetailTab = (["overview", "files", "versions", "comments", "agents"] as SkillDetailTab[]).includes(tabParam as SkillDetailTab)
+  const detailTab: SkillDetailTab = (["overview", "files", "versions", "agents"] as SkillDetailTab[]).includes(tabParam as SkillDetailTab)
     ? (tabParam as SkillDetailTab)
     : selectedPath !== "SKILL.md"
       ? "files"
@@ -3601,12 +3566,6 @@ export function CompanySkills() {
   const versionsQuery = useQuery({
     queryKey: queryKeys.companySkills.versions(selectedCompanyId ?? "", selectedSkillId ?? ""),
     queryFn: () => companySkillsApi.versions(selectedCompanyId!, selectedSkillId!),
-    enabled: Boolean(selectedCompanyId && selectedSkillId),
-  });
-
-  const commentsQuery = useQuery({
-    queryKey: queryKeys.companySkills.comments(selectedCompanyId ?? "", selectedSkillId ?? ""),
-    queryFn: () => companySkillsApi.comments(selectedCompanyId!, selectedSkillId!),
     enabled: Boolean(selectedCompanyId && selectedSkillId),
   });
 
@@ -3800,59 +3759,6 @@ export function CompanySkills() {
     },
   });
 
-  const createComment = useMutation({
-    mutationFn: () => companySkillsApi.createComment(selectedCompanyId!, selectedSkillId!, { body: commentDraft.trim() }),
-    onSuccess: async () => {
-      setCommentDraft("");
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.companySkills.comments(selectedCompanyId!, selectedSkillId!),
-      });
-      pushToast({ tone: "success", title: "Comment posted" });
-    },
-    onError: (error) => {
-      pushToast({
-        tone: "error",
-        title: "Comment failed",
-        body: error instanceof Error ? error.message : "Failed to post comment.",
-      });
-    },
-  });
-
-  const updateComment = useMutation({
-    mutationFn: (input: { commentId: string; body: string }) =>
-      companySkillsApi.updateComment(selectedCompanyId!, selectedSkillId!, input.commentId, { body: input.body }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.companySkills.comments(selectedCompanyId!, selectedSkillId!),
-      });
-      pushToast({ tone: "success", title: "Comment updated" });
-    },
-    onError: (error) => {
-      pushToast({
-        tone: "error",
-        title: "Comment update failed",
-        body: error instanceof Error ? error.message : "Failed to update comment.",
-      });
-    },
-  });
-
-  const deleteComment = useMutation({
-    mutationFn: (commentId: string) => companySkillsApi.deleteComment(selectedCompanyId!, selectedSkillId!, commentId),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.companySkills.comments(selectedCompanyId!, selectedSkillId!),
-      });
-      pushToast({ tone: "success", title: "Comment deleted" });
-    },
-    onError: (error) => {
-      pushToast({
-        tone: "error",
-        title: "Comment delete failed",
-        body: error instanceof Error ? error.message : "Failed to delete comment.",
-      });
-    },
-  });
-
   const toggleStar = useMutation({
     mutationFn: () => {
       if (!activeDetail) throw new Error("Select a skill first.");
@@ -4025,22 +3931,6 @@ export function CompanySkills() {
     }
     return counts;
   }, [installedSkills]);
-  const relatedSkills = useMemo(() => {
-    if (!activeDetail) return [];
-    const categorySet = new Set(activeDetail.categories);
-    return installedSkills
-      .filter((skill) => skill.id !== activeDetail.id)
-      .map((skill) => {
-        const sharedCategories = skill.categories.filter((category) => categorySet.has(category)).length;
-        const sameSource = skill.sourceBadge === activeDetail.sourceBadge ? 1 : 0;
-        return { skill, score: sharedCategories * 3 + sameSource };
-      })
-      .filter((entry) => entry.score > 0)
-      .sort((a, b) => b.score - a.score || a.skill.name.localeCompare(b.skill.name))
-      .slice(0, 5)
-      .map((entry) => entry.skill);
-  }, [activeDetail, installedSkills]);
-
   const installCatalog = useMutation({
     mutationFn: (payload: { catalogSkillId: string; slug: string | null; force: boolean }) =>
       companySkillsApi.installCatalog(selectedCompanyId!, {
@@ -4086,6 +3976,8 @@ export function CompanySkills() {
         adapterType: agent.adapterType,
         supportsSkills: Boolean(caps.supportsSkills),
         required: isRequired,
+        icon: agent.icon,
+        paused: agent.status === "paused" || agent.pausedAt != null,
         attached: usedSet.has(agent.id),
         requiredKeys,
       };
@@ -4452,17 +4344,6 @@ export function CompanySkills() {
           savePending={saveFile.isPending}
           versions={versionsQuery.data ?? []}
           versionsLoading={versionsQuery.isLoading}
-          comments={commentsQuery.data ?? []}
-          commentsLoading={commentsQuery.isLoading}
-          commentDraft={commentDraft}
-          setCommentDraft={setCommentDraft}
-          onCreateComment={() => createComment.mutate()}
-          createCommentPending={createComment.isPending}
-          onUpdateComment={(commentId, body) => updateComment.mutate({ commentId, body })}
-          updateCommentPending={updateComment.isPending}
-          onDeleteComment={(commentId) => deleteComment.mutate(commentId)}
-          deleteCommentPending={deleteComment.isPending}
-          relatedSkills={relatedSkills}
           attachAgents={eligibleAgentsForAttach}
           attachPopoverOpen={attachPopoverOpen}
           setAttachPopoverOpen={setAttachPopoverOpen}
