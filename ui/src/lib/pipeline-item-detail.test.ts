@@ -104,6 +104,10 @@ describe("pipeline item detail helpers", () => {
         toStageId: "stage-done",
         actorType: "system",
       }), "Moved to Done — automatic (all child items done)."],
+      [event("case.transitioned", { reason: "children_terminal", transitionClass: "manual" }, {
+        toStageId: "stage-done",
+        actorType: "system",
+      }), "Moved to Done — automatic (all child items done)."],
       [event("case.suggested", { suggestion: { toStageKey: "review" } }), "Suggested moving to Review."],
       [event("case.suggestion_resolved", { decision: "accept" }), "Suggestion approved."],
       [event("case.suggestion_resolved", { decision: "dismiss" }), "Suggestion dismissed."],

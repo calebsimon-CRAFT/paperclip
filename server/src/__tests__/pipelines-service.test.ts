@@ -1336,6 +1336,11 @@ describeEmbeddedPostgres("pipelineService", () => {
     expect(freshRoot!.version).toBe(2);
     const rootEvents = await svc.listCaseEvents(company.id, root.case.id);
     expect(rootEvents.map((event) => event.type)).toEqual(["ingested", "children_terminal", "transitioned"]);
+    const transitionEvent = rootEvents.find((event) => event.type === "transitioned");
+    expect(transitionEvent?.payload).toMatchObject({
+      reason: "children_terminal",
+      transitionClass: "auto",
+    });
   });
 
   it("auto-advances on entering a stage whose children are already terminal", async () => {
@@ -1374,6 +1379,12 @@ describeEmbeddedPostgres("pipelineService", () => {
     const covered = pipeline.stages.find((stage) => stage.key === "covered")!;
     expect(freshRoot!.stageId).toBe(covered.id);
     expect(freshRoot!.terminalKind).toBe("done");
+    const rootEvents = await svc.listCaseEvents(company.id, root.case.id);
+    const transitionEvents = rootEvents.filter((event) => event.type === "transitioned");
+    expect(transitionEvents.at(-1)?.payload).toMatchObject({
+      reason: "children_terminal",
+      transitionClass: "auto",
+    });
   });
 
   it("does not auto-advance on stage entry when the case has no children", async () => {

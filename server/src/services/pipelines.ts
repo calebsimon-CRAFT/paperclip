@@ -1765,7 +1765,7 @@ export function pipelineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeu
       autoAdvanceVisitedStageIds?: Set<string>;
     },
   ) {
-    if (input.transitionClass === "auto") {
+    if (input.transitionClass === "auto" && input.actor.type !== "system") {
       throw unprocessable("Pipeline auto autonomy is not enabled", { code: "autonomy_not_enabled" });
     }
     const { case: existing, stage: fromStage, pipeline } = await getCaseWithStageForUpdateOrThrow(tx, input.companyId, input.caseId);
@@ -1930,6 +1930,7 @@ export function pipelineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeu
         toStageKey,
         expectedVersion: input.caseRow.version,
         actor: { type: "system" },
+        transitionClass: "auto",
         reason: "children_terminal",
         automationLedgers: input.automationLedgers,
         autoAdvanceVisitedStageIds: visited,
@@ -1980,6 +1981,7 @@ export function pipelineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeu
         toStageKey,
         expectedVersion: ancestor.case.version,
         actor: { type: "system" },
+        transitionClass: "auto",
         reason: "children_terminal",
         automationLedgers,
       });

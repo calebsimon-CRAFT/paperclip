@@ -236,8 +236,8 @@ function movementReason(payload: Record<string, unknown>) {
 function movementClass(event: PipelineCaseEvent, payload: Record<string, unknown>) {
   const raw = readString(payload.transitionClass)?.toLowerCase();
   if (raw === "auto" || raw === "automatic") return "automatic";
-  if (raw === "manual") return "manual";
   if (event.actorType === "system" && readString(payload.reason) === "children_terminal") return "automatic";
+  if (raw === "manual") return "manual";
   return raw;
 }
 
