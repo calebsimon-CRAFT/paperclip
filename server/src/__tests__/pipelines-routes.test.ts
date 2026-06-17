@@ -1650,6 +1650,198 @@ describeEmbeddedPostgres("pipeline routes", () => {
     expect(routineRunsAfterGrant).toHaveLength(1);
   });
 
+  it("rejects automation retry from a same-company agent that lacks target pipeline write permission", async () => {
+    const company = await seedCompany();
+    const [assigneeAgent, callerAgent] = await db.insert(agents).values([
+      {
+        companyId: company.id,
+        name: "Breakdown Bot",
+        role: "engineer",
+        status: "idle",
+      },
+      {
+        companyId: company.id,
+        name: "Curious Coworker",
+        role: "engineer",
+        status: "idle",
+      },
+    ]).returning();
+    await db.insert(companyMemberships).values({
+      companyId: company.id,
+      principalType: "agent",
+      principalId: callerAgent!.id,
+      status: "active",
+      membershipRole: "member",
+    });
+    const [routine] = await db.insert(routines).values({
+      companyId: company.id,
+      title: "Break down item",
+      description: "Create target work.",
+      assigneeAgentId: assigneeAgent!.id,
+    }).returning();
+    const http = request(app(boardActor));
+    const target = await http
+      .post(`/api/companies/${company.id}/pipelines`)
+      .send({ key: "retry-target", name: "Retry Target" })
+      .expect(201);
+    const source = await http
+      .post(`/api/companies/${company.id}/pipelines`)
+      .send({
+        key: "retry-source",
+        name: "Retry Source",
+        stages: [
+          { key: "intake", name: "Intake", kind: "open", position: 100 },
+          {
+            key: "breakdown",
+            name: "Breakdown",
+            kind: "working",
+            position: 200,
+            config: {
+              onEnter: { type: "run_routine", routineId: routine!.id },
+              breakdown: {
+                targetPipelineId: target.body.id,
+                targetStageKey: "intake",
+                pieceNoun: "piece",
+                waitForPieces: true,
+              },
+            },
+          },
+          { key: "done", name: "Done", kind: "done", position: 900 },
+          { key: "cancelled", name: "Cancelled", kind: "cancelled", position: 1000 },
+        ],
+      })
+      .expect(201);
+    const parent = await http
+      .post(`/api/pipelines/${source.body.id}/cases`)
+      .send({ caseKey: "parent", title: "Parent" })
+      .expect(201);
+
+    await http
+      .post(`/api/cases/${parent.body.case.id}/transition`)
+      .send({ toStageKey: "breakdown", expectedVersion: 1 })
+      .expect(200);
+
+    const [failedLedger] = await db
+      .select()
+      .from(pipelineAutomationExecutions)
+      .where(eq(pipelineAutomationExecutions.caseId, parent.body.case.id));
+    expect(failedLedger!.error).toMatch(/^permission_preflight_failed:/);
+
+    await grantAgentPipelineWrite(company.id, assigneeAgent!.id, { pipelineId: target.body.id });
+
+    const callerActor: Express.Request["actor"] = {
+      type: "agent",
+      agentId: callerAgent!.id,
+      companyId: company.id,
+      runId: randomUUID(),
+      source: "agent_key",
+    };
+    await request(app(callerActor))
+      .post(`/api/cases/${parent.body.case.id}/automations/${failedLedger!.automationId}/retry`)
+      .expect(403)
+      .expect((res) => {
+        expect(res.body.code).toBe("pipeline_write_forbidden");
+        expect(res.body.details.pipelineId).toBe(target.body.id);
+      });
+
+    const routineRunsAfterDeniedRetry = await db.select().from(routineRuns).where(eq(routineRuns.routineId, routine!.id));
+    expect(routineRunsAfterDeniedRetry).toHaveLength(0);
+  });
+
+  it("rejects current-stage automation reruns from a same-company agent that lacks target pipeline write permission", async () => {
+    const company = await seedCompany();
+    const [assigneeAgent, callerAgent] = await db.insert(agents).values([
+      {
+        companyId: company.id,
+        name: "Breakdown Bot",
+        role: "engineer",
+        status: "idle",
+      },
+      {
+        companyId: company.id,
+        name: "Curious Coworker",
+        role: "engineer",
+        status: "idle",
+      },
+    ]).returning();
+    await db.insert(companyMemberships).values({
+      companyId: company.id,
+      principalType: "agent",
+      principalId: callerAgent!.id,
+      status: "active",
+      membershipRole: "member",
+    });
+    const [routine] = await db.insert(routines).values({
+      companyId: company.id,
+      title: "Break down item",
+      description: "Create target work.",
+      assigneeAgentId: assigneeAgent!.id,
+    }).returning();
+    const http = request(app(boardActor));
+    const target = await http
+      .post(`/api/companies/${company.id}/pipelines`)
+      .send({ key: "rerun-target", name: "Rerun Target" })
+      .expect(201);
+    const source = await http
+      .post(`/api/companies/${company.id}/pipelines`)
+      .send({
+        key: "rerun-source",
+        name: "Rerun Source",
+        stages: [
+          { key: "intake", name: "Intake", kind: "open", position: 100 },
+          {
+            key: "breakdown",
+            name: "Breakdown",
+            kind: "working",
+            position: 200,
+            config: {
+              onEnter: { type: "run_routine", routineId: routine!.id },
+              breakdown: {
+                targetPipelineId: target.body.id,
+                targetStageKey: "intake",
+                pieceNoun: "piece",
+                waitForPieces: true,
+              },
+            },
+          },
+          { key: "done", name: "Done", kind: "done", position: 900 },
+          { key: "cancelled", name: "Cancelled", kind: "cancelled", position: 1000 },
+        ],
+      })
+      .expect(201);
+    await grantAgentPipelineWrite(company.id, assigneeAgent!.id, { pipelineId: target.body.id });
+    const parent = await http
+      .post(`/api/pipelines/${source.body.id}/cases`)
+      .send({ caseKey: "parent", title: "Parent" })
+      .expect(201);
+
+    await http
+      .post(`/api/cases/${parent.body.case.id}/transition`)
+      .send({ toStageKey: "breakdown", expectedVersion: 1 })
+      .expect(200);
+
+    const routineRunsBeforeDeniedRerun = await db.select().from(routineRuns).where(eq(routineRuns.routineId, routine!.id));
+    expect(routineRunsBeforeDeniedRerun).toHaveLength(1);
+
+    const callerActor: Express.Request["actor"] = {
+      type: "agent",
+      agentId: callerAgent!.id,
+      companyId: company.id,
+      runId: randomUUID(),
+      source: "agent_key",
+    };
+    await request(app(callerActor))
+      .post(`/api/cases/${parent.body.case.id}/automation/current-stage/rerun`)
+      .expect(403)
+      .expect((res) => {
+        expect(res.body.code).toBe("pipeline_write_forbidden");
+        expect(res.body.details.pipelineId).toBe(target.body.id);
+      });
+
+    const routineRunsAfterDeniedRerun = await db.select().from(routineRuns).where(eq(routineRuns.routineId, routine!.id));
+    expect(routineRunsAfterDeniedRerun).toHaveLength(1);
+  });
+
   it("reuses breakdown children by request key when automation retries after recovery", async () => {
     const company = await seedCompany();
     const [agent] = await db.insert(agents).values({

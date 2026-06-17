@@ -1564,6 +1564,7 @@ export function pipelineRoutes(db: Db, options: Parameters<typeof pipelineServic
     const caseId = req.params.caseId as string;
     const automationId = req.params.automationId as string;
     const companyId = await assertCaseAccess(db, req, caseId);
+    await assertCurrentStageAutomationTargetWriteAccess(db, req, { access, companyId, caseId, automationId });
     const actor = actorForMutation(req);
     res.json(await svc.retryAutomation({ companyId, caseId, automationId, actor }));
   });
@@ -1571,6 +1572,7 @@ export function pipelineRoutes(db: Db, options: Parameters<typeof pipelineServic
   router.post("/cases/:caseId/automation/current-stage/rerun", async (req, res) => {
     const caseId = req.params.caseId as string;
     const companyId = await assertCaseAccess(db, req, caseId);
+    await assertCurrentStageAutomationTargetWriteAccess(db, req, { access, companyId, caseId });
     const actor = actorForMutation(req);
     res.json(await svc.rerunCurrentStageAutomation({ companyId, caseId, actor }));
   });
@@ -1678,6 +1680,56 @@ function readStageBreakdownConfig(config: unknown) {
   const raw = (config as Record<string, unknown>).breakdown;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   return raw as Record<string, unknown>;
+}
+
+function readStageAutomationId(stage: typeof pipelineStages.$inferSelect) {
+  if (!stage.config || typeof stage.config !== "object" || Array.isArray(stage.config)) return null;
+  const onEnterValue = (stage.config as Record<string, unknown>).onEnter;
+  if (!onEnterValue || typeof onEnterValue !== "object" || Array.isArray(onEnterValue)) return null;
+  const onEnter = onEnterValue as Record<string, unknown>;
+  const rawId = typeof onEnter.id === "string" ? onEnter.id.trim() : "";
+  const routineId = typeof onEnter.routineId === "string" ? onEnter.routineId.trim() : "";
+  if (onEnter.type !== "run_routine" || routineId.length === 0) return null;
+  return rawId.length > 0 ? rawId : `${stage.id}:on_enter`;
+}
+
+function readStageAutomationTargetPipelineId(stage: typeof pipelineStages.$inferSelect) {
+  if (!readStageAutomationId(stage)) return null;
+  const breakdown = readStageBreakdownConfig(stage.config);
+  const targetPipelineId = typeof breakdown?.targetPipelineId === "string" ? breakdown.targetPipelineId.trim() : "";
+  return targetPipelineId.length > 0 ? targetPipelineId : null;
+}
+
+async function assertCurrentStageAutomationTargetWriteAccess(
+  db: Db,
+  req: Request,
+  input: {
+    access: ReturnType<typeof accessService>;
+    companyId: string;
+    caseId: string;
+    automationId?: string;
+  },
+) {
+  const row = await db
+    .select({ stage: pipelineStages })
+    .from(pipelineCases)
+    .innerJoin(pipelineStages, eq(pipelineCases.stageId, pipelineStages.id))
+    .where(and(eq(pipelineCases.companyId, input.companyId), eq(pipelineCases.id, input.caseId)))
+    .limit(1)
+    .then((rows) => rows[0] ?? null);
+  if (!row) throw notFound("Pipeline case not found");
+
+  const currentAutomationId = readStageAutomationId(row.stage);
+  if (input.automationId && currentAutomationId !== input.automationId) return;
+
+  const targetPipelineId = readStageAutomationTargetPipelineId(row.stage);
+  if (!targetPipelineId) return;
+
+  await assertPipelineWriteAccess(req, {
+    access: input.access,
+    companyId: input.companyId,
+    pipelineId: targetPipelineId,
+  });
 }
 
 function parsePermissionPreflightFingerprint(fingerprint: string | null) {
