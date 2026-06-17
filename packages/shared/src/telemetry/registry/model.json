@@ -1,0 +1,40 @@
+{
+  "namespace": "model",
+  "events": [
+    {
+      "name": "model.request_started",
+      "description": "An LLM inference request was initiated.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "model", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "adapter_type", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "model.request_completed",
+      "description": "An LLM inference request completed successfully.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "model", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "adapter_type", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "stop_reason", "type": "string", "required": false, "pii": false, "promoted": false },
+        { "name": "input_tokens", "type": "number", "required": false, "pii": false, "promoted": false },
+        { "name": "output_tokens", "type": "number", "required": false, "pii": false, "promoted": false }
+      ]
+    },
+    {
+      "name": "model.request_failed",
+      "description": "An LLM inference request failed.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "model", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "adapter_type", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "error_code", "type": "string", "required": false, "pii": false, "promoted": false },
+        { "name": "status", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    }
+  ]
+}

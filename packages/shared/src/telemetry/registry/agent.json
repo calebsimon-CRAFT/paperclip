@@ -1,0 +1,53 @@
+{
+  "namespace": "agent",
+  "events": [
+    {
+      "name": "agent.created",
+      "description": "A new agent was created/hired.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "adapter_type", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "agent.first_heartbeat",
+      "description": "An agent completed its first heartbeat run successfully.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "adapter_type", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "agent.heartbeat_completed",
+      "description": "An agent completed a heartbeat execution run.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "adapter_type", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "model", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "work_mode", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "status", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "agent.paused",
+      "description": "An agent was paused.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "source", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "agent.resumed",
+      "description": "A paused agent was unpaused.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "source", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    }
+  ]
+}

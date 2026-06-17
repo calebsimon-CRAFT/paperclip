@@ -1,0 +1,33 @@
+{
+  "namespace": "billing",
+  "events": [
+    {
+      "name": "billing.usage_recorded",
+      "description": "Usage was recorded against an agent or company billing account.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "model", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "usage_type", "type": "string", "required": false, "pii": false, "promoted": false }
+      ]
+    },
+    {
+      "name": "billing.plan_upgraded",
+      "description": "A company upgraded to a higher billing plan.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "from_plan", "type": "string", "required": false, "pii": false, "promoted": false },
+        { "name": "to_plan", "type": "string", "required": false, "pii": false, "promoted": false }
+      ]
+    },
+    {
+      "name": "billing.plan_downgraded",
+      "description": "A company downgraded to a lower billing plan.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "from_plan", "type": "string", "required": false, "pii": false, "promoted": false },
+        { "name": "to_plan", "type": "string", "required": false, "pii": false, "promoted": false }
+      ]
+    }
+  ]
+}

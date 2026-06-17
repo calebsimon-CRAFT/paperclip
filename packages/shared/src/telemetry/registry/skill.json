@@ -1,0 +1,34 @@
+{
+  "namespace": "skill",
+  "events": [
+    {
+      "name": "skill.imported",
+      "description": "A skill was imported or installed into the company or an agent.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "source_type", "type": "string", "required": false, "pii": false, "promoted": false },
+        { "name": "skill_ref", "type": "string", "required": false, "pii": false, "promoted": false }
+      ]
+    },
+    {
+      "name": "skill.invoked",
+      "description": "A skill was invoked by the agent runtime during a heartbeat.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "skill_ref", "type": "string", "required": false, "pii": false, "promoted": false },
+        { "name": "status", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "skill.error",
+      "description": "A skill invocation failed.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "skill_ref", "type": "string", "required": false, "pii": false, "promoted": false },
+        { "name": "error_code", "type": "string", "required": false, "pii": false, "promoted": false }
+      ]
+    }
+  ]
+}

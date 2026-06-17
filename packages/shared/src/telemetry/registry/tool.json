@@ -1,0 +1,36 @@
+{
+  "namespace": "tool",
+  "events": [
+    {
+      "name": "tool.invoked",
+      "description": "A tool was invoked by the agent during a heartbeat run.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "tool_name", "type": "string", "required": false, "pii": false, "promoted": false },
+        { "name": "adapter_type", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "tool.completed",
+      "description": "A tool invocation completed.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "tool_name", "type": "string", "required": false, "pii": false, "promoted": false },
+        { "name": "status", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "tool.error",
+      "description": "A tool invocation failed.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "tool_name", "type": "string", "required": false, "pii": false, "promoted": false },
+        { "name": "error_code", "type": "string", "required": false, "pii": false, "promoted": false },
+        { "name": "status", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    }
+  ]
+}

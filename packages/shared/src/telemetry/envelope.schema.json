@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://paperclip.ing/schemas/telemetry/envelope/v2.json",
+  "title": "TelemetryEnvelopeV2",
+  "description": "V2 telemetry batch envelope sent to the ingest endpoint.",
+  "type": "object",
+  "required": ["app", "schemaVersion", "installId", "version", "batchId", "events"],
+  "additionalProperties": false,
+  "properties": {
+    "app": {
+      "type": "string",
+      "description": "Application identifier, e.g. 'paperclip'."
+    },
+    "schemaVersion": {
+      "type": "string",
+      "const": "2",
+      "description": "Envelope schema version. Must be '2' for v2 payloads."
+    },
+    "installId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Pseudonymous per-installation UUID. Never contains PII."
+    },
+    "version": {
+      "type": "string",
+      "description": "Application version string, e.g. '1.4.2'."
+    },
+    "batchId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUID that identifies this batch. Used as a dedup key at the Kinesis/ingest level."
+    },
+    "events": {
+      "type": "array",
+      "description": "One or more telemetry events included in this batch.",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/TelemetryEventV2"
+      }
+    }
+  },
+  "definitions": {
+    "TelemetryEventV2": {
+      "title": "TelemetryEventV2",
+      "type": "object",
+      "required": ["event_id", "event_name", "occurred_at", "retention_class"],
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID uniquely identifying this event row. Used as the ClickHouse row-level dedup key."
+        },
+        "event_name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+          "description": "Dot-namespaced event name, e.g. 'task.completed'. Must match a registered event in the registry."
+        },
+        "occurred_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of when the event occurred on the client."
+        },
+        "retention_class": {
+          "type": "string",
+          "enum": ["standard", "sensitive", "ephemeral"],
+          "description": "Controls storage TTL and access policy. standard=90d, sensitive=30d with restricted access, ephemeral=7d."
+        },
+        "dimensions_json": {
+          "type": "object",
+          "description": "Escape valve for new dimensions before column promotion. All keys must be non-PII strings.",
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "number" },
+              { "type": "boolean" }
+            ]
+          }
+        },
+        "measurements_json": {
+          "type": "object",
+          "description": "Numeric measurements escape valve, e.g. latency_ms, token_count.",
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "agent_role": {
+          "type": "string",
+          "description": "Promoted column (LowCardinality). The role of the agent that produced this event."
+        },
+        "work_mode": {
+          "type": "string",
+          "description": "Promoted column (LowCardinality). The work mode of the agent run, e.g. 'standard', 'plan'."
+        },
+        "adapter_type": {
+          "type": "string",
+          "description": "Promoted column (LowCardinality). The adapter type used, e.g. 'claude_local'."
+        },
+        "model": {
+          "type": "string",
+          "description": "Promoted column (LowCardinality). The model identifier used for LLM calls."
+        },
+        "source": {
+          "type": "string",
+          "description": "Promoted column (LowCardinality). Origin of the event, e.g. 'webhook', 'api', 'schedule'."
+        },
+        "status": {
+          "type": "string",
+          "description": "Promoted column (LowCardinality). Outcome status, e.g. 'success', 'failure', 'timeout'."
+        }
+      }
+    }
+  }
+}

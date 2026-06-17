@@ -1,0 +1,73 @@
+{
+  "namespace": "task",
+  "events": [
+    {
+      "name": "task.created",
+      "description": "A new task/issue was created.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "work_mode", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "source", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "task.checkout",
+      "description": "An agent checked out a task, beginning active work.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "work_mode", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "adapter_type", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "task.completed",
+      "description": "A task was marked done by the assigned agent.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "work_mode", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "adapter_type", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "model", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "status", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "task.blocked",
+      "description": "A task transitioned to blocked status.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "work_mode", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "task.in_review",
+      "description": "A task was moved to in_review, awaiting approval or feedback.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "work_mode", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "task.cancelled",
+      "description": "A task was cancelled.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "source", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "task.commented",
+      "description": "A comment was posted on a task.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "source", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    }
+  ]
+}

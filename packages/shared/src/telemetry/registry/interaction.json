@@ -1,0 +1,39 @@
+{
+  "namespace": "interaction",
+  "events": [
+    {
+      "name": "interaction.created",
+      "description": "An issue-thread interaction card was created (request_confirmation, ask_user_questions, suggest_tasks, or request_checkbox_confirmation).",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "interaction_kind", "type": "string", "required": false, "pii": false, "promoted": false }
+      ]
+    },
+    {
+      "name": "interaction.confirmed",
+      "description": "A request_confirmation or request_checkbox_confirmation interaction was accepted by the board/user.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "interaction_kind", "type": "string", "required": false, "pii": false, "promoted": false }
+      ]
+    },
+    {
+      "name": "interaction.rejected",
+      "description": "An interaction was rejected by the board/user.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "interaction_kind", "type": "string", "required": false, "pii": false, "promoted": false }
+      ]
+    },
+    {
+      "name": "interaction.expired",
+      "description": "An interaction expired due to a stale target revision or a superseding comment.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "interaction_kind", "type": "string", "required": false, "pii": false, "promoted": false },
+        { "name": "expiry_reason", "type": "string", "required": false, "pii": false, "promoted": false }
+      ]
+    }
+  ]
+}

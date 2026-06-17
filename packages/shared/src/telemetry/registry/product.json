@@ -1,0 +1,51 @@
+{
+  "namespace": "product",
+  "events": [
+    {
+      "name": "product.install_started",
+      "description": "The user began the Paperclip installation flow.",
+      "retention_class": "standard",
+      "dimensions": []
+    },
+    {
+      "name": "product.install_completed",
+      "description": "Paperclip installation completed successfully.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "adapter_type", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "product.company_imported",
+      "description": "A company package was imported into the Paperclip instance.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "source_type", "type": "string", "required": false, "pii": false, "promoted": false },
+        { "name": "source_ref", "type": "string", "required": false, "pii": false, "promoted": false },
+        { "name": "source_ref_hashed", "type": "boolean", "required": false, "pii": false, "promoted": false }
+      ]
+    },
+    {
+      "name": "product.project_created",
+      "description": "A new project was created.",
+      "retention_class": "standard",
+      "dimensions": []
+    },
+    {
+      "name": "product.goal_created",
+      "description": "A new company goal was created.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "goal_level", "type": "string", "required": false, "pii": false, "promoted": false }
+      ]
+    },
+    {
+      "name": "product.first_session",
+      "description": "A user completed their first interactive session after install.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "adapter_type", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    }
+  ]
+}

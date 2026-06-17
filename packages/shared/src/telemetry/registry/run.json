@@ -1,0 +1,44 @@
+{
+  "namespace": "run",
+  "events": [
+    {
+      "name": "run.created",
+      "description": "A new routine was created.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "source", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "run.started",
+      "description": "A routine execution began.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "adapter_type", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "source", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "run.completed",
+      "description": "A routine execution completed successfully.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "adapter_type", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "status", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "run.failed",
+      "description": "A routine execution failed.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "agent_role", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "adapter_type", "type": "string", "required": false, "pii": false, "promoted": true },
+        { "name": "error_code", "type": "string", "required": false, "pii": false, "promoted": false },
+        { "name": "status", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    }
+  ]
+}

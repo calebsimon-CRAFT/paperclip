@@ -1,0 +1,31 @@
+{
+  "namespace": "ui",
+  "events": [
+    {
+      "name": "ui.page_viewed",
+      "description": "A user navigated to a page in the Paperclip UI.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "page_name", "type": "string", "required": false, "pii": false, "promoted": false },
+        { "name": "source", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    },
+    {
+      "name": "ui.modal_opened",
+      "description": "A modal dialog was opened in the Paperclip UI.",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "modal_name", "type": "string", "required": false, "pii": false, "promoted": false }
+      ]
+    },
+    {
+      "name": "ui.board_action",
+      "description": "A user performed an action on the Paperclip board (e.g. created task, updated status).",
+      "retention_class": "standard",
+      "dimensions": [
+        { "name": "action_name", "type": "string", "required": false, "pii": false, "promoted": false },
+        { "name": "status", "type": "string", "required": false, "pii": false, "promoted": true }
+      ]
+    }
+  ]
+}
