@@ -740,8 +740,24 @@ export function taskWatchdogService(db: Db, deps: TaskWatchdogServiceDeps = {}) 
   }
 
   async function collectClassifierInput(companyId: string, watchdog: IssueWatchdogRow) {
+    const issueRows = await loadWatchdogSubtreeIssues(companyId, watchdog.issueId);
+    const subtreeIssueIds = issueRows.map((issue) => issue.id);
+    if (subtreeIssueIds.length === 0) {
+      return {
+        watchdog: summarizeIssueWatchdog(watchdog),
+        issues: [],
+        activeRuns: [],
+        queuedWakeRequests: [],
+        blockers: [],
+        pendingInteractions: [],
+        pendingApprovals: [],
+        evaluatedAt: new Date(),
+        firstRunGraceMs: TASK_WATCHDOG_FIRST_RUN_GRACE_MS,
+        completedRunIssueIds: [],
+      } satisfies TaskWatchdogClassifierInput;
+    }
+
     const [
-      issueRows,
       activeRunRows,
       activeIssueRunRows,
       wakeRows,
@@ -752,7 +768,6 @@ export function taskWatchdogService(db: Db, deps: TaskWatchdogServiceDeps = {}) 
       documentActivityRows,
       workProductActivityRows,
     ] = await Promise.all([
-      loadWatchdogSubtreeIssues(companyId, watchdog.issueId),
       db
         .select({
           companyId: heartbeatRuns.companyId,
@@ -764,6 +779,10 @@ export function taskWatchdogService(db: Db, deps: TaskWatchdogServiceDeps = {}) 
         .where(and(
           eq(heartbeatRuns.companyId, companyId),
           inArray(heartbeatRuns.status, [...TASK_WATCHDOG_LIVE_RUN_STATUSES]),
+          or(
+            inArray(sql`${heartbeatRuns.contextSnapshot}->>'issueId'`, subtreeIssueIds),
+            inArray(sql`${heartbeatRuns.contextSnapshot}->>'taskId'`, subtreeIssueIds),
+          ),
         )),
       db
         .select({
@@ -776,6 +795,7 @@ export function taskWatchdogService(db: Db, deps: TaskWatchdogServiceDeps = {}) 
         .innerJoin(heartbeatRuns, eq(issues.executionRunId, heartbeatRuns.id))
         .where(and(
           eq(issues.companyId, companyId),
+          inArray(issues.id, subtreeIssueIds),
           isNull(issues.hiddenAt),
           inArray(heartbeatRuns.status, [...TASK_WATCHDOG_LIVE_RUN_STATUSES]),
         )),
@@ -790,6 +810,12 @@ export function taskWatchdogService(db: Db, deps: TaskWatchdogServiceDeps = {}) 
         .where(and(
           eq(agentWakeupRequests.companyId, companyId),
           inArray(agentWakeupRequests.status, [...TASK_WATCHDOG_WAKE_REQUEST_STATUSES]),
+          or(
+            inArray(sql`${agentWakeupRequests.payload}->>'issueId'`, subtreeIssueIds),
+            inArray(sql`${agentWakeupRequests.payload}->>'taskId'`, subtreeIssueIds),
+            inArray(sql`${agentWakeupRequests.payload}->'_paperclipWakeContext'->>'issueId'`, subtreeIssueIds),
+            inArray(sql`${agentWakeupRequests.payload}->'_paperclipWakeContext'->>'taskId'`, subtreeIssueIds),
+          ),
         )),
       db
         .select({
@@ -798,7 +824,11 @@ export function taskWatchdogService(db: Db, deps: TaskWatchdogServiceDeps = {}) 
           blockedIssueId: issueRelations.relatedIssueId,
         })
         .from(issueRelations)
-        .where(and(eq(issueRelations.companyId, companyId), eq(issueRelations.type, "blocks"))),
+        .where(and(
+          eq(issueRelations.companyId, companyId),
+          eq(issueRelations.type, "blocks"),
+          inArray(issueRelations.relatedIssueId, subtreeIssueIds),
+        )),
       db
         .select({
           companyId: issueThreadInteractions.companyId,
@@ -807,7 +837,11 @@ export function taskWatchdogService(db: Db, deps: TaskWatchdogServiceDeps = {}) 
           status: issueThreadInteractions.status,
         })
         .from(issueThreadInteractions)
-        .where(and(eq(issueThreadInteractions.companyId, companyId), eq(issueThreadInteractions.status, "pending"))),
+        .where(and(
+          eq(issueThreadInteractions.companyId, companyId),
+          inArray(issueThreadInteractions.issueId, subtreeIssueIds),
+          eq(issueThreadInteractions.status, "pending"),
+        )),
       db
         .select({
           companyId: issueApprovals.companyId,
@@ -819,6 +853,7 @@ export function taskWatchdogService(db: Db, deps: TaskWatchdogServiceDeps = {}) 
         .innerJoin(approvals, eq(issueApprovals.approvalId, approvals.id))
         .where(and(
           eq(issueApprovals.companyId, companyId),
+          inArray(issueApprovals.issueId, subtreeIssueIds),
           inArray(approvals.status, ["pending", "revision_requested"]),
         )),
       db
@@ -827,7 +862,11 @@ export function taskWatchdogService(db: Db, deps: TaskWatchdogServiceDeps = {}) 
           latestAt: sql<Date | null>`MAX(${issueComments.updatedAt})`,
         })
         .from(issueComments)
-        .where(and(eq(issueComments.companyId, companyId), isNull(issueComments.deletedAt)))
+        .where(and(
+          eq(issueComments.companyId, companyId),
+          inArray(issueComments.issueId, subtreeIssueIds),
+          isNull(issueComments.deletedAt),
+        ))
         .groupBy(issueComments.issueId),
       db
         .select({
@@ -835,7 +874,10 @@ export function taskWatchdogService(db: Db, deps: TaskWatchdogServiceDeps = {}) 
           latestAt: sql<Date | null>`MAX(${issueDocuments.updatedAt})`,
         })
         .from(issueDocuments)
-        .where(eq(issueDocuments.companyId, companyId))
+        .where(and(
+          eq(issueDocuments.companyId, companyId),
+          inArray(issueDocuments.issueId, subtreeIssueIds),
+        ))
         .groupBy(issueDocuments.issueId),
       db
         .select({
@@ -843,7 +885,10 @@ export function taskWatchdogService(db: Db, deps: TaskWatchdogServiceDeps = {}) 
           latestAt: sql<Date | null>`MAX(${issueWorkProducts.updatedAt})`,
         })
         .from(issueWorkProducts)
-        .where(eq(issueWorkProducts.companyId, companyId))
+        .where(and(
+          eq(issueWorkProducts.companyId, companyId),
+          inArray(issueWorkProducts.issueId, subtreeIssueIds),
+        ))
         .groupBy(issueWorkProducts.issueId),
     ]);
     const latestCommentByIssueId = new Map(commentActivityRows.map((row) => [row.issueId, row.latestAt]));
