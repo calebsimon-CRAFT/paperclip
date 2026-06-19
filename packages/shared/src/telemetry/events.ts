@@ -54,7 +54,9 @@ export function trackAgentCreated(
 ): void {
   client.track("agent.created", {
     agent_role: dims.agentRole,
-    ...(dims.agentId ? { agent_id: dims.agentId } : {}),
+    ...(dims.agentId
+      ? { agent_id_hashed: client.hashPrivateRef(dims.agentId), agent_id_is_hashed: true }
+      : {}),
   });
 }
 
@@ -74,7 +76,9 @@ export function trackAgentFirstHeartbeat(
 ): void {
   client.track("agent.first_heartbeat", {
     agent_role: dims.agentRole,
-    ...(dims.agentId ? { agent_id: dims.agentId } : {}),
+    ...(dims.agentId
+      ? { agent_id_hashed: client.hashPrivateRef(dims.agentId), agent_id_is_hashed: true }
+      : {}),
   });
 }
 
@@ -84,7 +88,9 @@ export function trackAgentTaskCompleted(
 ): void {
   client.track("agent.task_completed", {
     agent_role: dims.agentRole,
-    ...(dims.agentId ? { agent_id: dims.agentId } : {}),
+    ...(dims.agentId
+      ? { agent_id_hashed: client.hashPrivateRef(dims.agentId), agent_id_is_hashed: true }
+      : {}),
     ...(dims.adapterType ? { adapter_type: dims.adapterType } : {}),
     ...(dims.model ? { model: dims.model } : {}),
   });
