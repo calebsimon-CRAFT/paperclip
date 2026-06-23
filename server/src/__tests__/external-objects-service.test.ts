@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import {
   companies,
   createDb,
+  activityLog,
   externalObjectMentions,
   externalObjects,
   issueComments,
@@ -359,6 +360,7 @@ describeEmbeddedPostgres("externalObjectService", () => {
   }, 20_000);
 
   afterEach(async () => {
+    await db.delete(activityLog);
     await db.delete(externalObjectMentions);
     await db.delete(externalObjects);
     await db.delete(issueComments);
@@ -496,6 +498,35 @@ describeEmbeddedPostgres("externalObjectService", () => {
     expect(updated.liveness).toBe("unreachable");
     expect(updated.lastErrorMessage).toContain("[redacted-url]");
     expect(updated.lastErrorMessage).not.toContain("secret");
+  });
+
+  it("schedules newly detected objects for automatic refresh", async () => {
+    const { companyId, issueId } = await createIssue();
+    const resolve = vi.fn(async () => ({
+      ok: true as const,
+      snapshot: {
+        statusCategory: "open" as const,
+        statusTone: "info" as const,
+        statusKey: "open",
+        statusLabel: "Open",
+        ttlSeconds: 300,
+      },
+    }));
+    const resolver: ExternalObjectResolver = {
+      providerKey: "url",
+      objectType: "link",
+      resolve,
+    };
+    const svc = externalObjectService(db, { resolvers: [resolver], github: false });
+    await svc.syncIssue(issueId);
+    const object = await db.select().from(externalObjects).then((rows) => rows[0]!);
+
+    expect(object.nextRefreshAt).toBeInstanceOf(Date);
+
+    const refreshed = await svc.refreshDueObjects(companyId, 50, new Date(Date.now() + 1_000));
+
+    expect(refreshed).toHaveLength(1);
+    expect(resolve).toHaveBeenCalledTimes(1);
   });
 
   it("skips terminal objects when refreshing due objects", async () => {

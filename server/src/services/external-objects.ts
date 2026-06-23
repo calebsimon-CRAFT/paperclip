@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, lte } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { documents, externalObjectMentions, externalObjects, issueComments, issueDocuments, issues, plugins } from "@paperclipai/db";
 import {
@@ -413,6 +413,7 @@ export function externalObjectService(
       displayKey: detection.displayKey ?? null,
       iconKey: detection.iconKey ?? null,
       displayTitle: detection.displayTitle ?? canonical.sanitizedDisplayUrl,
+      nextRefreshAt: now,
       updatedAt: now,
     };
     const inserted = await dbOrTx
@@ -431,6 +432,7 @@ export function externalObjectService(
           displayKey: values.displayKey,
           iconKey: values.iconKey,
           displayTitle: values.displayTitle,
+          nextRefreshAt: sql`coalesce(${externalObjects.nextRefreshAt}, now())`,
           updatedAt: now,
         },
       })
