@@ -211,9 +211,9 @@ function externalObjectRowLabel(group: IssueExternalObjectGroup): React.ReactNod
   const displayKey = externalObjectRowDisplayKey(group);
   const Icon = externalObjectIconForKey(pill.iconKey);
   return (
-    <span className="inline-flex min-w-0 items-center gap-1">
-      {Icon ? <Icon aria-hidden="true" className="h-3 w-3 shrink-0" /> : null}
-      <span className="truncate">{displayKey}</span>
+    <span className="inline-flex min-w-0 items-start gap-1">
+      {Icon ? <Icon aria-hidden="true" className="h-3 w-3 shrink-0 mt-0.5" /> : null}
+      <span className="whitespace-normal break-words leading-tight">{displayKey}</span>
     </span>
   );
 }
@@ -2254,7 +2254,7 @@ export function IssueProperties({
                   <PropertyRow
                     key={group.object?.id ?? `${pill.providerKey}:${pill.objectType}:${pill.url ?? "anon"}`}
                     label={externalObjectRowLabel(externalObject)}
-                    labelClassName="w-32"
+                    labelClassName="w-24 max-w-24 whitespace-normal leading-tight"
                   >
                     <ExternalObjectPill
                       object={pill}

@@ -91,7 +91,7 @@ describe("ExternalObjectPill", () => {
     expect(html).not.toContain("×");
   });
 
-  it("uses provider display keys, icons, visible status, and a truncated title when supplied", () => {
+  it("uses the object link label, provider icon, and visible status when supplied", () => {
     const html = renderToStaticMarkup(
       <ExternalObjectPill
         object={{
@@ -108,9 +108,10 @@ describe("ExternalObjectPill", () => {
         }}
       />,
     );
-    expect(html).toContain("Github Pull Request");
     expect(html).toContain("Merged");
-    expect(html).toContain("acme/web#241: Add rich object presentation metadata");
+    expect(html).toContain("acme/web#241");
+    expect(html).toContain("text-violet-600");
+    expect(html).not.toContain("Github Pull Request");
     expect(html).toContain('aria-label="GitHub pull request — Merged: acme/web#241: Add rich object presentation metadata"');
   });
 });

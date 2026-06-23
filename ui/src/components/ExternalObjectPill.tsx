@@ -31,6 +31,32 @@ export interface ExternalObjectPillData {
   url?: string | null;
 }
 
+function githubObjectLabel(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "github.com") return null;
+    const [, owner, repo, kind, number] = parsed.pathname.split("/");
+    if (!owner || !repo || !number) return null;
+    if (kind !== "pull" && kind !== "issues") return null;
+    return `${owner}/${repo}#${number}`;
+  } catch {
+    return null;
+  }
+}
+
+function externalObjectValueLabel(object: ExternalObjectPillData, fallback: string): string {
+  const githubLabel = object.providerKey === "github" ? githubObjectLabel(object.url) : null;
+  return githubLabel ?? object.displayTitle?.trim() ?? fallback;
+}
+
+function externalObjectPillTone(object: ExternalObjectPillData): string {
+  if (object.statusIconKey === "git-merge") {
+    return "text-violet-600 border-violet-600 dark:text-violet-400 dark:border-violet-400";
+  }
+  return externalObjectStatusIcon[object.statusCategory] ?? externalObjectStatusIconDefault;
+}
+
 interface ExternalObjectPillProps {
   object: ExternalObjectPillData;
   /** Optional external mention count (renders as `×N` superscript when > 1). */
@@ -59,11 +85,12 @@ export function ExternalObjectPill({
   children,
   inert,
 }: ExternalObjectPillProps) {
-  const tone = externalObjectStatusIcon[object.statusCategory] ?? externalObjectStatusIconDefault;
+  const tone = externalObjectPillTone(object);
   const overlay = externalObjectLivenessOverlay[object.liveness] ?? "";
   const providerLabel = externalObjectProviderLabel(object.providerKey);
   const typeLabel = externalObjectTypeLabel(object.objectType);
   const displayKey = object.displayKey?.trim() || `${providerLabel} ${typeLabel}`;
+  const valueLabel = externalObjectValueLabel(object, displayKey);
   const statusLabel = object.statusLabel ?? externalObjectCategoryLabel(object.statusCategory);
   const livenessLabel = externalObjectLivenessLabel(object.liveness);
   const ProviderIcon = externalObjectIconForKey(object.iconKey);
@@ -88,8 +115,7 @@ export function ExternalObjectPill({
     : object.displayTitle ?? displayKey;
   const labelText = children ?? (
     <>
-      <span className="font-medium">{displayKey}</span>
-      <span className="inline-flex items-center gap-0.5 rounded-full bg-background/70 px-1 text-[10px] font-medium">
+      <span className="inline-flex items-center gap-0.5 rounded-full border border-current bg-background/70 px-1 text-[10px] font-medium">
         <ExternalObjectStatusIcon
           category={object.statusCategory}
           liveness={object.liveness}
@@ -99,9 +125,7 @@ export function ExternalObjectPill({
         />
         <span>{statusLabel}</span>
       </span>
-      {object.displayTitle ? (
-        <span className="max-w-[16rem] truncate text-muted-foreground/80">{object.displayTitle}</span>
-      ) : null}
+      <span className="max-w-[16rem] truncate font-medium">{valueLabel}</span>
     </>
   );
   const countSuffix = typeof sourceCount === "number" && sourceCount > 1 ? (

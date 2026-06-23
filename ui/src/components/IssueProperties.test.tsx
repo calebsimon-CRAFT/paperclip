@@ -1855,12 +1855,18 @@ describe("IssueProperties", () => {
 
     expect(container.textContent).toContain("Github Pull Request");
     expect(container.textContent).toContain("Github Issue");
+    expect(container.textContent).toContain("acme/web#241");
     expect(container.textContent).toContain("Merged");
     expect(container.textContent).toContain("Open");
     expect(container.textContent).not.toContain("External objects");
     const label = Array.from(container.querySelectorAll("span"))
       .find((span) => span.textContent === "Github Pull Request");
     expect(label?.querySelector("svg")).toBeTruthy();
+    const pullRequestLink = Array.from(container.querySelectorAll("a"))
+      .find((anchor) => anchor.getAttribute("href") === "https://github.com/acme/web/pull/241");
+    expect(pullRequestLink?.textContent).toContain("acme/web#241");
+    expect(pullRequestLink?.textContent).toContain("Merged");
+    expect(pullRequestLink?.textContent).not.toContain("Github Pull Request");
 
     act(() => root.unmount());
   });
