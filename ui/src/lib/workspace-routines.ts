@@ -29,3 +29,30 @@ export function getWorkspaceSpecificRoutineVariableNames(routine: RoutineListIte
 export function routineHasWorkspaceSpecificVariables(routine: RoutineListItem): boolean {
   return getWorkspaceSpecificRoutineVariableNames(routine).length > 0;
 }
+
+export interface WorkspaceRoutineGroups {
+  thisWorkspace: RoutineListItem[];
+  otherWorkspaces: RoutineListItem[];
+}
+
+export function groupWorkspaceSpecificRoutines(
+  routines: RoutineListItem[],
+  currentProjectId: string | null,
+): WorkspaceRoutineGroups {
+  const groups: WorkspaceRoutineGroups = {
+    thisWorkspace: [],
+    otherWorkspaces: [],
+  };
+
+  for (const routine of routines) {
+    if (!routineHasWorkspaceSpecificVariables(routine)) continue;
+
+    if (routine.projectId === currentProjectId) {
+      groups.thisWorkspace.push(routine);
+    } else {
+      groups.otherWorkspaces.push(routine);
+    }
+  }
+
+  return groups;
+}

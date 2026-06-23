@@ -2,6 +2,7 @@ import type { RoutineListItem } from "@paperclipai/shared";
 import { describe, expect, it } from "vitest";
 import {
   getWorkspaceSpecificRoutineVariableNames,
+  groupWorkspaceSpecificRoutines,
   routineHasWorkspaceSpecificVariables,
 } from "./workspace-routines";
 
@@ -67,5 +68,44 @@ describe("workspace routine helpers", () => {
     });
 
     expect(routineHasWorkspaceSpecificVariables(routine)).toBe(false);
+  });
+
+  it("groups current-project workspace routines before other workspace routines and ignores non-workspace routines", () => {
+    const currentRoutine = createRoutine({
+      id: "routine-current",
+      projectId: "project-1",
+      variables: [
+        { name: "workspaceBranch", label: null, type: "text", defaultValue: null, required: true, options: [] },
+      ],
+    });
+    const otherProjectRoutine = createRoutine({
+      id: "routine-other-project",
+      projectId: "project-2",
+      variables: [
+        { name: "workspaceBranch", label: null, type: "text", defaultValue: null, required: true, options: [] },
+      ],
+    });
+    const noProjectRoutine = createRoutine({
+      id: "routine-no-project",
+      projectId: null,
+      variables: [
+        { name: "workspaceBranch", label: null, type: "text", defaultValue: null, required: true, options: [] },
+      ],
+    });
+    const generalRoutine = createRoutine({
+      id: "routine-general",
+      projectId: "project-1",
+      variables: [
+        { name: "repo", label: null, type: "text", defaultValue: null, required: true, options: [] },
+      ],
+    });
+
+    expect(groupWorkspaceSpecificRoutines(
+      [otherProjectRoutine, generalRoutine, currentRoutine, noProjectRoutine],
+      "project-1",
+    )).toEqual({
+      thisWorkspace: [currentRoutine],
+      otherWorkspaces: [otherProjectRoutine, noProjectRoutine],
+    });
   });
 });
