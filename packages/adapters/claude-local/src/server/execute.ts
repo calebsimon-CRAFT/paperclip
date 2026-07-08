@@ -33,6 +33,7 @@ import {
   readPaperclipRuntimeSkillEntries,
   readPaperclipIssueWorkModeFromContext,
   joinPromptSections,
+  buildAgentMemoryRecallSection,
   buildInvocationEnvForLogs,
   ensureAbsoluteDirectory,
   ensurePathInEnv,
@@ -461,6 +462,15 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         `[paperclip] Warning: could not read agent instructions file "${instructionsFilePath}": ${reason}\n`,
       );
     }
+  }
+  // TRE-926: inject a bounded head of the agent's own MEMORY.md when the recall
+  // shim is enabled. Feature-flagged (default off) and degrade-open, so this is a
+  // no-op unless PAPERCLIP_AGENT_MEMORY_RECALL is set.
+  const memoryRecallSection = await buildAgentMemoryRecallSection(agentHome);
+  if (memoryRecallSection) {
+    combinedInstructionsContents = combinedInstructionsContents
+      ? `${combinedInstructionsContents}\n\n${memoryRecallSection}`
+      : memoryRecallSection;
   }
   const promptBundle = await prepareClaudePromptBundle({
     companyId: agent.companyId,
