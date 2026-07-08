@@ -612,6 +612,11 @@ export const suggestedTaskDraftSchema = z.object({
 export const suggestTasksPayloadSchema = z.object({
   version: z.literal(1),
   defaultParentId: z.string().uuid().nullable().optional(),
+  // Standardized across all interaction kinds (TRE-926). Unlike the confirmation
+  // and question kinds (which default to true), suggest_tasks defaults to persist:
+  // authors opt in explicitly, preserving the historical "suggestions survive a
+  // user comment" behavior. See normalizeCreateInteractionInput in the service.
+  supersedeOnUserComment: z.boolean().optional(),
   tasks: z.array(suggestedTaskDraftSchema).min(1).max(50),
 }).superRefine((value, ctx) => {
   const seenClientKeys = new Set<string>();

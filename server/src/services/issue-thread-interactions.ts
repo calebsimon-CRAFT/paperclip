@@ -18,6 +18,7 @@ import type {
   CancelIssueThreadInteraction,
   CreateIssueThreadInteraction,
   IssueThreadInteraction,
+  IssueThreadInteractionResult,
   RequestCheckboxConfirmationInteraction,
   RequestConfirmationInteraction,
   RequestConfirmationTarget,
@@ -85,14 +86,20 @@ type RequestConfirmationLikeInteraction =
   | RequestConfirmationInteraction
   | RequestCheckboxConfirmationInteraction;
 
+// TRE-926: supersedeOnUserComment is now standardized across ALL interaction kinds
+// (including suggest_tasks) so authors can choose supersede-vs-persist per card. The
+// per-kind default is set in normalizeCreateInteractionInput — suggest_tasks defaults
+// to persist to preserve historical behavior, the others default to supersede.
 const USER_COMMENT_SUPERSEDABLE_INTERACTION_KINDS = [
   ...REQUEST_CONFIRMATION_INTERACTION_KINDS,
   "ask_user_questions",
+  "suggest_tasks",
 ] as const;
 type UserCommentSupersedableKind = (typeof USER_COMMENT_SUPERSEDABLE_INTERACTION_KINDS)[number];
 type UserCommentSupersedableInteraction =
   | RequestConfirmationLikeInteraction
-  | AskUserQuestionsInteraction;
+  | AskUserQuestionsInteraction
+  | SuggestTasksInteraction;
 
 function isRequestConfirmationLikeKind(kind: string): kind is RequestConfirmationLikeKind {
   return (REQUEST_CONFIRMATION_INTERACTION_KINDS as readonly string[]).includes(kind);
@@ -227,12 +234,20 @@ function normalizeCreateInteractionInput(input: CreateIssueThreadInteraction): C
           supersedeOnUserComment: input.payload.supersedeOnUserComment ?? true,
         },
       };
+    case "suggest_tasks":
+      // TRE-926: suggest_tasks accepts supersedeOnUserComment but defaults to
+      // persist (undefined => false) so suggested backlogs survive a user comment
+      // unless the author explicitly opts in. This preserves historical behavior.
+      return input;
     default:
       return input;
   }
 }
 
-function buildSupersededByCommentResult(row: IssueThreadInteractionRow, commentId: string) {
+function buildSupersededByCommentResult(
+  row: IssueThreadInteractionRow,
+  commentId: string,
+): IssueThreadInteractionResult {
   if (row.kind === "ask_user_questions") {
     return {
       version: 1,
@@ -240,6 +255,18 @@ function buildSupersededByCommentResult(row: IssueThreadInteractionRow, commentI
       expirationReason: "superseded_by_comment",
       commentId,
       summaryMarkdown: null,
+    } as const;
+  }
+
+  if (row.kind === "suggest_tasks") {
+    // suggest_tasks result has a distinct shape (no `outcome`/`expirationReason`
+    // field); the confirmation-shaped result below would be stripped to `{version}`
+    // by suggestTasksResultSchema. Record the supersede via rejectionReason.
+    return {
+      version: 1,
+      createdTasks: [],
+      skippedClientKeys: [],
+      rejectionReason: "superseded_by_comment",
     } as const;
   }
 
@@ -1437,53 +1464,43 @@ export function issueThreadInteractionService(db: Db) {
       }
 
       const rowById = new Map(rows.map((row) => [row.id, row] as const));
+      // TRE-926: group superseded rows by result-shape so every supersedable kind
+      // (ask_user_questions, the two confirmation kinds, and suggest_tasks) is
+      // expired with a valid, kind-appropriate result. buildSupersededByCommentResult
+      // yields the same result for every row within a group, so one update per group
+      // is sufficient. Replaces the earlier ask/confirmation-only branches.
+      const supersedeResultGroup = (kind: string): "ask_user_questions" | "suggest_tasks" | "confirmation" => {
+        if (kind === "ask_user_questions") return "ask_user_questions";
+        if (kind === "suggest_tasks") return "suggest_tasks";
+        return "confirmation";
+      };
       for (const { comment, rowIds } of supersededByComment.values()) {
         const commentRows = rowIds
           .map((rowId) => rowById.get(rowId))
           .filter((row): row is IssueThreadInteractionRow => Boolean(row));
-        const questionRowIds = commentRows
-          .filter((row) => row.kind === "ask_user_questions")
-          .map((row) => row.id);
-        const confirmationRowIds = commentRows
-          .filter((row) => isRequestConfirmationLikeKind(row.kind))
-          .map((row) => row.id);
-
-        if (questionRowIds.length > 0) {
-          const sampleQuestionRow = commentRows.find((row) => row.kind === "ask_user_questions");
-          if (!sampleQuestionRow) continue;
-          const updatedRows = await db
-            .update(issueThreadInteractions)
-            .set({
-              status: "expired",
-              result: buildSupersededByCommentResult(sampleQuestionRow, comment.id),
-              resolvedByAgentId: null,
-              resolvedByUserId: comment.authorUserId,
-              resolvedAt: now,
-              updatedAt: now,
-            })
-            .where(and(
-              inArray(issueThreadInteractions.id, questionRowIds),
-              eq(issueThreadInteractions.status, "pending"),
-            ))
-            .returning();
-          expired.push(...updatedRows.map(hydrateInteraction));
+        const groups = new Map<string, { sampleRow: IssueThreadInteractionRow; ids: string[] }>();
+        for (const row of commentRows) {
+          const key = supersedeResultGroup(row.kind);
+          const group = groups.get(key);
+          if (group) {
+            group.ids.push(row.id);
+          } else {
+            groups.set(key, { sampleRow: row, ids: [row.id] });
+          }
         }
-
-        if (confirmationRowIds.length > 0) {
-          const sampleConfirmationRow = commentRows.find((row) => isRequestConfirmationLikeKind(row.kind));
-          if (!sampleConfirmationRow) continue;
+        for (const { sampleRow, ids } of groups.values()) {
           const updatedRows = await db
             .update(issueThreadInteractions)
             .set({
               status: "expired",
-              result: buildSupersededByCommentResult(sampleConfirmationRow, comment.id),
+              result: buildSupersededByCommentResult(sampleRow, comment.id),
               resolvedByAgentId: null,
               resolvedByUserId: comment.authorUserId,
               resolvedAt: now,
               updatedAt: now,
             })
             .where(and(
-              inArray(issueThreadInteractions.id, confirmationRowIds),
+              inArray(issueThreadInteractions.id, ids),
               eq(issueThreadInteractions.status, "pending"),
             ))
             .returning();

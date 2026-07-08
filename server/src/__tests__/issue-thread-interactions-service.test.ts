@@ -670,6 +670,140 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
     expect(rows[0]?.status).toBe("pending");
   });
 
+  it("keeps suggest_tasks pending on a user comment by default (persist)", async () => {
+    // TRE-926: suggest_tasks accepts supersedeOnUserComment but defaults to persist,
+    // preserving the historical behavior where suggested backlogs survive comments.
+    const { companyId, issueId } = await seedConfirmationIssue("Suggest persist default");
+
+    const created = await interactionsSvc.create({
+      id: issueId,
+      companyId,
+    }, {
+      kind: "suggest_tasks",
+      payload: {
+        version: 1,
+        tasks: [{ clientKey: "root", title: "Persist by default" }],
+      },
+    }, {
+      userId: "local-board",
+    });
+
+    expect(created.payload.supersedeOnUserComment).toBeUndefined();
+
+    const expired = await interactionsSvc.expireRequestConfirmationsSupersededByComment({
+      id: issueId,
+      companyId,
+    }, {
+      id: randomUUID(),
+      createdAt: new Date(new Date(created.createdAt).getTime() + 1_000),
+      authorUserId: "local-board",
+    }, {
+      userId: "local-board",
+    });
+
+    expect(expired).toHaveLength(0);
+    const rows = await db.select().from(issueThreadInteractions);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.status).toBe("pending");
+  });
+
+  it("supersedes suggest_tasks on a later user comment when the author opts in", async () => {
+    const { companyId, issueId } = await seedConfirmationIssue("Suggest supersede opt-in");
+    const commentId = randomUUID();
+
+    const created = await interactionsSvc.create({
+      id: issueId,
+      companyId,
+    }, {
+      kind: "suggest_tasks",
+      payload: {
+        version: 1,
+        supersedeOnUserComment: true,
+        tasks: [{ clientKey: "root", title: "Supersede me" }],
+      },
+    }, {
+      userId: "local-board",
+    });
+
+    expect(created.payload.supersedeOnUserComment).toBe(true);
+
+    const expired = await interactionsSvc.expireRequestConfirmationsSupersededByComment({
+      id: issueId,
+      companyId,
+    }, {
+      id: commentId,
+      createdAt: new Date(new Date(created.createdAt).getTime() + 1_000),
+      authorUserId: "local-board",
+    }, {
+      userId: "local-board",
+    });
+
+    expect(expired).toHaveLength(1);
+    expect(expired[0]).toMatchObject({
+      id: created.id,
+      kind: "suggest_tasks",
+      status: "expired",
+      result: {
+        version: 1,
+        createdTasks: [],
+        skippedClientKeys: [],
+        rejectionReason: "superseded_by_comment",
+      },
+      resolvedByUserId: "local-board",
+    });
+  });
+
+  it("repairs historical suggest_tasks superseded by later user comments when opted in", async () => {
+    const { companyId, issueId } = await seedConfirmationIssue("Historical suggest supersede");
+    const createdAt = new Date("2026-05-18T12:00:00.000Z");
+
+    const created = await interactionsSvc.create({
+      id: issueId,
+      companyId,
+    }, {
+      kind: "suggest_tasks",
+      payload: {
+        version: 1,
+        supersedeOnUserComment: true,
+        tasks: [{ clientKey: "root", title: "Historical supersede" }],
+      },
+    }, {
+      userId: "local-board",
+    });
+
+    await db
+      .update(issueThreadInteractions)
+      .set({ createdAt, updatedAt: createdAt })
+      .where(eq(issueThreadInteractions.id, created.id));
+
+    await db.insert(issueComments).values({
+      id: randomUUID(),
+      companyId,
+      issueId,
+      authorUserId: "local-board",
+      authorType: "user",
+      body: "Please revise this first.",
+      createdAt: new Date(createdAt.getTime() + 60_000),
+      updatedAt: new Date(createdAt.getTime() + 60_000),
+    });
+
+    const expired = await interactionsSvc.expireRequestConfirmationsSupersededByHistoricalComments({
+      id: issueId,
+      companyId,
+    });
+
+    expect(expired).toHaveLength(1);
+    expect(expired[0]).toMatchObject({
+      id: created.id,
+      kind: "suggest_tasks",
+      status: "expired",
+      result: {
+        version: 1,
+        rejectionReason: "superseded_by_comment",
+      },
+    });
+  });
+
   it("does not supersede ask_user_questions for agent, system, or older user comments", async () => {
     const { companyId, issueId } = await seedConfirmationIssue("Question supersede exclusions");
 

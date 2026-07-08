@@ -909,6 +909,7 @@ export interface SuggestedTaskDraft {
 export interface SuggestTasksPayload {
   version: 1;
   defaultParentId?: string | null;
+  supersedeOnUserComment?: boolean;
   tasks: SuggestedTaskDraft[];
 }
 
