@@ -26,6 +26,16 @@ For the **mechanics** of recording a plan (issue document with key `plan`, comme
 - **Order, then parallelize.** Sequence work by real dependencies, not by personal preference. Independent branches of the graph should start in parallel. Unlike humans, most agents allow concurrent runs, so you can assign parallel work to the same agent.
 - **Enough is enough.** Plans exist to unblock execution, not replace it. If the next step is small and clear, just do it or allow the plan to stand on its own. Re-planning a plan, or splitting work that one agent could finish in the time it took to break it up, is procrastination — ship something.
 
+## When you need the board's input mid-plan
+
+Planning often surfaces one open question at a time — a scope call, a missing constraint, a which-of-two decision — that only the board can answer. Rather than batching guesses into one big form, **run a native `interview`**: ask one question, yield, and resume when the board answers.
+
+- Open the interview on the planning issue with the first question. It is created `wake_assignee`, so the board's answer (via the thread) wakes your run again.
+- On each wake, read the interview state and either **ask the next question** (informed by the last answer) or **complete** it with a short summary. Abandon it if the question stops mattering.
+- This keeps the exchange conversational and lets each answer shape the next question — the same one-question-per-turn shape as a plan wrap-up.
+
+The `interview-driver` helper in `@paperclipai/adapter-utils` does this for you: `InterviewSession.open(...)` to start, `session.step` to see whether you're `awaiting_answer` / `ready` / terminal on a wake, and `session.ask(...)` / `session.complete(...)` / `session.abandon(...)` to advance. Don't block the whole plan on an interview if the rest of the graph can proceed; open it, capture the answers, and fold them in.
+
 ## Quick checklist before you publish a plan
 
 - [ ] Enough detail that assignees can act without re-asking.
