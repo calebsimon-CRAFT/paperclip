@@ -21,6 +21,7 @@ import type {
   IssueRecoveryActionStatus,
   IssueWorkMode,
   ModelProfileKey,
+  InterviewInteractionPhase,
   IssueThreadInteractionContinuationPolicy,
   IssueThreadInteractionKind,
   IssueThreadInteractionStatus,
@@ -1083,23 +1084,58 @@ export interface RequestCheckboxConfirmationInteraction extends IssueThreadInter
   result?: RequestCheckboxConfirmationResult | null;
 }
 
+// TRE-932 — native multi-turn interview.
+export interface InterviewTurn {
+  id: string;
+  question: string;
+  answer?: string | null;
+  askedAt: string;
+  answeredAt?: string | null;
+}
+
+export interface InterviewPayload {
+  version: 1;
+  topic?: string | null;
+  phase: InterviewInteractionPhase;
+  turns: InterviewTurn[];
+  supersedeOnUserComment?: boolean;
+}
+
+export interface InterviewResult {
+  version: 1;
+  outcome: "complete" | "abandoned";
+  turns: InterviewTurn[];
+  summaryMarkdown?: string | null;
+  reason?: string | null;
+  abandonedBy?: "agent" | "board" | null;
+}
+
+export interface InterviewInteraction extends IssueThreadInteractionBase {
+  kind: "interview";
+  payload: InterviewPayload;
+  result?: InterviewResult | null;
+}
+
 export type IssueThreadInteraction =
   | SuggestTasksInteraction
   | AskUserQuestionsInteraction
   | RequestConfirmationInteraction
-  | RequestCheckboxConfirmationInteraction;
+  | RequestCheckboxConfirmationInteraction
+  | InterviewInteraction;
 
 export type IssueThreadInteractionPayload =
   | SuggestTasksPayload
   | AskUserQuestionsPayload
   | RequestConfirmationPayload
-  | RequestCheckboxConfirmationPayload;
+  | RequestCheckboxConfirmationPayload
+  | InterviewPayload;
 
 export type IssueThreadInteractionResult =
   | SuggestTasksResult
   | AskUserQuestionsResult
   | RequestConfirmationResult
-  | RequestCheckboxConfirmationResult;
+  | RequestCheckboxConfirmationResult
+  | InterviewResult;
 
 export interface IssueAttachment {
   id: string;

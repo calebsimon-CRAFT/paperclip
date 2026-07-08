@@ -20,6 +20,8 @@ import {
   ISSUE_RECOVERY_ACTION_STATUSES,
   ISSUE_WORK_MODES,
   clampIssueRequestDepth,
+  INTERVIEW_INTERACTION_MAX_TURNS,
+  INTERVIEW_INTERACTION_PHASES,
   ISSUE_STATUSES,
   ISSUE_THREAD_INTERACTION_CONTINUATION_POLICIES,
   ISSUE_THREAD_INTERACTION_KINDS,
@@ -885,6 +887,71 @@ export const requestCheckboxConfirmationResultSchema = requestConfirmationResult
   }
 });
 
+// ---------------------------------------------------------------------------
+// TRE-932 — native `interview` interaction kind
+// ---------------------------------------------------------------------------
+
+export const interviewInteractionPhaseSchema = z.enum(INTERVIEW_INTERACTION_PHASES);
+
+const interviewQuestionSchema = z.string().trim().min(1).max(4000);
+const interviewAnswerSchema = multilineTextSchema.pipe(z.string().trim().min(1).max(20000));
+
+// A single ordered turn stored on the interview row. `answer`/`answeredAt` are null
+// until the board responds to the turn's `question`.
+export const interviewTurnSchema = z.object({
+  id: z.string().trim().min(1).max(120),
+  question: interviewQuestionSchema,
+  answer: interviewAnswerSchema.nullable().optional(),
+  askedAt: z.string().datetime(),
+  answeredAt: z.string().datetime().nullable().optional(),
+});
+
+// The full interview state as persisted on the interaction row and returned by
+// hydrateInteraction. `phase` is the source of truth for what may happen next.
+export const interviewPayloadSchema = z.object({
+  version: z.literal(1),
+  topic: z.string().trim().max(240).nullable().optional(),
+  phase: interviewInteractionPhaseSchema,
+  turns: z.array(interviewTurnSchema).min(1).max(INTERVIEW_INTERACTION_MAX_TURNS),
+  supersedeOnUserComment: z.boolean().optional(),
+});
+
+// What a client sends to OPEN an interview: just the first question (+ optional
+// topic). The service synthesizes the initial turn (id + askedAt) and phase.
+export const createInterviewPayloadSchema = z.object({
+  version: z.literal(1),
+  topic: z.string().trim().max(240).nullable().optional(),
+  question: interviewQuestionSchema,
+  supersedeOnUserComment: z.boolean().optional(),
+});
+
+export const interviewResultSchema = z.object({
+  version: z.literal(1),
+  outcome: z.enum(["complete", "abandoned"]),
+  turns: z.array(interviewTurnSchema).max(INTERVIEW_INTERACTION_MAX_TURNS),
+  summaryMarkdown: z.string().max(20000).nullable().optional(),
+  reason: z.string().trim().max(4000).nullable().optional(),
+  abandonedBy: z.enum(["agent", "board"]).nullable().optional(),
+});
+
+// Agent-facing advance actions on an in-flight interview. `ask` appends the next
+// question; `complete`/`abandon` terminate the interview.
+export const advanceInterviewSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("ask"),
+    question: interviewQuestionSchema,
+  }),
+  z.object({
+    action: z.literal("complete"),
+    summaryMarkdown: multilineTextSchema.pipe(z.string().max(20000)).nullable().optional(),
+  }),
+  z.object({
+    action: z.literal("abandon"),
+    reason: z.string().trim().max(4000).nullable().optional(),
+  }),
+]);
+export type AdvanceInterview = z.infer<typeof advanceInterviewSchema>;
+
 export const createIssueThreadInteractionSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("suggest_tasks"),
@@ -925,6 +992,17 @@ export const createIssueThreadInteractionSchema = z.discriminatedUnion("kind", [
     summary: z.string().trim().max(1000).nullable().optional(),
     continuationPolicy: issueThreadInteractionContinuationPolicySchema.optional().default("wake_assignee"),
     payload: requestCheckboxConfirmationPayloadSchema,
+  }),
+  z.object({
+    kind: z.literal("interview"),
+    idempotencyKey: z.string().trim().max(255).nullable().optional(),
+    sourceCommentId: z.string().uuid().nullable().optional(),
+    sourceRunId: z.string().uuid().nullable().optional(),
+    title: z.string().trim().max(240).nullable().optional(),
+    summary: z.string().trim().max(1000).nullable().optional(),
+    // wake_assignee so the board's answer (via /respond) wakes the interviewing agent.
+    continuationPolicy: issueThreadInteractionContinuationPolicySchema.optional().default("wake_assignee"),
+    payload: createInterviewPayloadSchema,
   }),
 ]);
 
@@ -975,7 +1053,12 @@ export const cancelIssueThreadInteractionSchema = z.object({
 export type CancelIssueThreadInteraction = z.infer<typeof cancelIssueThreadInteractionSchema>;
 
 export const respondIssueThreadInteractionSchema = z.object({
-  answers: z.array(askUserQuestionsAnswerSchema).max(20),
+  // ask_user_questions: structured option answers. Optional so an interview reply
+  // (free-text `answer`) can share this route. The service enforces the right shape
+  // per interaction kind.
+  answers: z.array(askUserQuestionsAnswerSchema).max(20).optional(),
+  // interview (TRE-932): the board's free-text answer to the current open question.
+  answer: multilineTextSchema.pipe(z.string().trim().min(1).max(20000)).optional(),
   summaryMarkdown: multilineTextSchema.pipe(z.string().max(20000)).nullable().optional(),
 });
 export type RespondIssueThreadInteraction = z.infer<typeof respondIssueThreadInteractionSchema>;

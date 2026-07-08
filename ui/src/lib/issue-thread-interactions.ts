@@ -5,6 +5,10 @@ export type {
   AskUserQuestionsQuestion,
   AskUserQuestionsQuestionOption,
   AskUserQuestionsResult,
+  InterviewInteraction,
+  InterviewPayload,
+  InterviewResult,
+  InterviewTurn,
   IssueThreadInteraction,
   IssueThreadInteractionActorFields,
   IssueThreadInteractionBase,
@@ -57,6 +61,7 @@ export function isIssueThreadInteraction(
       || candidate.kind === "ask_user_questions"
       || candidate.kind === "request_confirmation"
       || candidate.kind === "request_checkbox_confirmation"
+      || candidate.kind === "interview"
     );
 }
 
@@ -149,6 +154,17 @@ export function buildIssueThreadInteractionSummary(
     return optionCount === 1
       ? "Requested a selection from 1 option"
       : `Requested a selection from ${optionCount} options`;
+  }
+
+  if (interaction.kind === "interview") {
+    const turnCount = interaction.payload.turns.length;
+    const answeredCount = interaction.payload.turns.filter((turn) => turn.answer != null).length;
+    if (interaction.status === "answered") return "Interview complete";
+    if (interaction.status === "cancelled") return "Interview abandoned";
+    if (interaction.status === "expired") return "Interview expired";
+    return turnCount === 1 && answeredCount === 0
+      ? "Interview started"
+      : `Interview in progress (${answeredCount}/${turnCount} answered)`;
   }
 
   const count = interaction.payload.questions.length;

@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   agents,
@@ -13,10 +14,15 @@ import {
 import { trackInteractionResolved } from "@paperclipai/shared/telemetry";
 import type {
   AcceptIssueThreadInteraction,
+  AdvanceInterview,
   AskUserQuestionsAnswer,
   AskUserQuestionsInteraction,
   CancelIssueThreadInteraction,
   CreateIssueThreadInteraction,
+  InterviewInteraction,
+  InterviewPayload,
+  InterviewResult,
+  InterviewTurn,
   IssueThreadInteraction,
   IssueThreadInteractionResult,
   RequestCheckboxConfirmationInteraction,
@@ -29,10 +35,14 @@ import type {
 } from "@paperclipai/shared";
 import {
   acceptIssueThreadInteractionSchema,
+  advanceInterviewSchema,
   askUserQuestionsPayloadSchema,
   askUserQuestionsResultSchema,
   cancelIssueThreadInteractionSchema,
   createIssueThreadInteractionSchema,
+  INTERVIEW_INTERACTION_MAX_TURNS,
+  interviewPayloadSchema,
+  interviewResultSchema,
   rejectIssueThreadInteractionSchema,
   requestCheckboxConfirmationPayloadSchema,
   requestCheckboxConfirmationResultSchema,
@@ -121,7 +131,7 @@ function isEquivalentCreateRequest(
   input: CreateIssueThreadInteraction,
   actor: InteractionActor,
 ) {
-  return (
+  const metadataMatches = (
     row.kind === input.kind
     && row.continuationPolicy === input.continuationPolicy
     && (row.idempotencyKey ?? null) === (input.idempotencyKey ?? null)
@@ -131,8 +141,20 @@ function isEquivalentCreateRequest(
     && (row.summary ?? null) === (input.summary ?? null)
     && (row.createdByAgentId ?? null) === (actor.agentId ?? null)
     && (row.createdByUserId ?? null) === (actor.userId ?? null)
-    && isDeepStrictEqual(row.payload, input.payload)
   );
+  if (!metadataMatches) return false;
+  if (input.kind === "interview") {
+    // The stored interview payload holds a synthesized first turn (random id +
+    // askedAt timestamp), so a raw deep-equal against the author's create input
+    // never matches. Compare only the author-provided seed: first question + topic.
+    const stored = row.payload as InterviewPayload;
+    const firstQuestion = stored?.turns?.[0]?.question ?? null;
+    return (
+      firstQuestion === input.payload.question
+      && (stored?.topic ?? null) === (input.payload.topic ?? null)
+    );
+  }
+  return isDeepStrictEqual(row.payload, input.payload);
 }
 
 function hydrateInteraction(
@@ -174,6 +196,13 @@ function hydrateInteraction(
         payload: requestCheckboxConfirmationPayloadSchema.parse(row.payload),
         result: row.result ? requestCheckboxConfirmationResultSchema.parse(row.result) : null,
       } satisfies RequestCheckboxConfirmationInteraction;
+    case "interview":
+      return {
+        ...base,
+        kind: "interview",
+        payload: interviewPayloadSchema.parse(row.payload),
+        result: row.result ? interviewResultSchema.parse(row.result) : null,
+      } satisfies InterviewInteraction;
     default:
       throw unprocessable(`Unknown interaction kind: ${row.kind}`);
   }
@@ -536,7 +565,7 @@ function resolveSelectedCheckboxConfirmationOptions(args: {
 
 function normalizeQuestionAnswers(args: {
   questions: AskUserQuestionsInteraction["payload"]["questions"];
-  answers: RespondIssueThreadInteraction["answers"];
+  answers: readonly AskUserQuestionsAnswer[];
 }) {
   const questionById = new Map(args.questions.map((question) => [question.id, question] as const));
   const answerByQuestionId = new Map<string, AskUserQuestionsAnswer>();
@@ -735,6 +764,63 @@ async function expireStaleRequestConfirmationTarget(db: Db | any, args: {
   const expired = hydrateInteraction(updated);
   await emitInteractionResolvedTelemetry(db, expired);
   return expired;
+}
+
+// ---------------------------------------------------------------------------
+// TRE-932 — interview state-machine helpers
+// ---------------------------------------------------------------------------
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function isTerminalInterviewPhase(phase: InterviewPayload["phase"]) {
+  return phase === "complete" || phase === "abandoned";
+}
+
+// Build the persisted interview state from the author's create input (just the
+// first question + optional topic). The service owns turn ids and timestamps.
+function buildInitialInterviewPayload(
+  input: Extract<CreateIssueThreadInteraction, { kind: "interview" }>["payload"],
+): InterviewPayload {
+  return {
+    version: 1,
+    topic: input.topic ?? null,
+    phase: "awaiting_answer",
+    // A board comment must not silently kill an in-flight interview: the board
+    // answers through /respond, not free-form comments. Persist unless opted in.
+    supersedeOnUserComment: input.supersedeOnUserComment ?? false,
+    turns: [
+      {
+        id: randomUUID(),
+        question: input.question,
+        answer: null,
+        askedAt: nowIso(),
+        answeredAt: null,
+      },
+    ],
+  };
+}
+
+// SQL guard so a concurrent answer/advance cannot double-advance an interview: the
+// UPDATE only matches when the row's stored phase still equals the expected value.
+function interviewPhaseGuard(expected: InterviewPayload["phase"]) {
+  return sql`${issueThreadInteractions.payload}->>'phase' = ${expected}`;
+}
+
+function buildInterviewResult(
+  payload: InterviewPayload,
+  outcome: "complete" | "abandoned",
+  extra: { summaryMarkdown?: string | null; reason?: string | null; abandonedBy?: "agent" | "board" | null },
+): InterviewResult {
+  return {
+    version: 1,
+    outcome,
+    turns: payload.turns,
+    summaryMarkdown: extra.summaryMarkdown ?? null,
+    reason: extra.reason ?? null,
+    abandonedBy: extra.abandonedBy ?? null,
+  };
 }
 
 export function issueThreadInteractionService(db: Db) {
@@ -1037,6 +1123,11 @@ export function issueThreadInteractionService(db: Db) {
         });
       }
 
+      // Interview create input carries only the first question; the persisted row
+      // holds the full turn/phase state (TRE-932).
+      const storedPayload =
+        data.kind === "interview" ? buildInitialInterviewPayload(data.payload) : data.payload;
+
       let created: IssueThreadInteractionRow;
       try {
         [created] = await db
@@ -1054,7 +1145,7 @@ export function issueThreadInteractionService(db: Db) {
             summary: data.summary ?? null,
             createdByAgentId: actor.agentId ?? null,
             createdByUserId: actor.userId ?? null,
-            payload: data.payload,
+            payload: storedPayload,
           })
           .returning();
       } catch (error) {
@@ -1607,8 +1698,53 @@ export function issueThreadInteractionService(db: Db) {
       if (current.companyId !== issue.companyId || current.issueId !== issue.id) {
         throw notFound("Interaction not found");
       }
+
+      // TRE-932: an interview shares the /respond route — the board answers the
+      // current open question. Unlike ask_user_questions this does NOT resolve the
+      // interaction; it stays pending (phase=awaiting_next_question) so the agent,
+      // woken by the route, can append the next question or terminate.
+      if (current.kind === "interview") {
+        if (current.status !== "pending") {
+          throw conflict("Interview has already been resolved");
+        }
+        const answerText = input.answer?.trim();
+        if (!answerText) {
+          throw unprocessable("Interview responses require an `answer`");
+        }
+        const interview = hydrateInteraction(current) as InterviewInteraction;
+        if (interview.payload.phase !== "awaiting_answer") {
+          throw conflict("Interview is not awaiting an answer");
+        }
+        const turns = interview.payload.turns.map((turn) => ({ ...turn }));
+        const lastTurn = turns[turns.length - 1];
+        if (!lastTurn || lastTurn.answer != null) {
+          throw conflict("Interview has no open question to answer");
+        }
+        lastTurn.answer = answerText;
+        lastTurn.answeredAt = nowIso();
+        const nextPayload: InterviewPayload = {
+          ...interview.payload,
+          phase: "awaiting_next_question",
+          turns,
+        };
+        const [updated] = await db
+          .update(issueThreadInteractions)
+          .set({ payload: nextPayload, updatedAt: new Date() })
+          .where(and(
+            eq(issueThreadInteractions.id, interactionId),
+            eq(issueThreadInteractions.status, "pending"),
+            interviewPhaseGuard("awaiting_answer"),
+          ))
+          .returning();
+        if (!updated) {
+          throw conflict("Interview is not awaiting an answer");
+        }
+        await touchIssue(db, issue.id);
+        return hydrateInteraction(updated);
+      }
+
       if (current.kind !== "ask_user_questions") {
-        throw unprocessable("Only ask_user_questions interactions can be answered");
+        throw unprocessable("Only ask_user_questions or interview interactions can be answered");
       }
       if (current.status !== "pending") {
         throw conflict("Interaction has already been resolved");
@@ -1617,7 +1753,7 @@ export function issueThreadInteractionService(db: Db) {
       const interaction = hydrateInteraction(current) as AskUserQuestionsInteraction;
       const normalizedAnswers = normalizeQuestionAnswers({
         questions: interaction.payload.questions,
-        answers: input.answers,
+        answers: input.answers ?? [],
       });
 
       const [updated] = await db
@@ -1667,8 +1803,48 @@ export function issueThreadInteractionService(db: Db) {
       if (current.companyId !== issue.companyId || current.issueId !== issue.id) {
         throw notFound("Interaction not found");
       }
+
+      // TRE-932: the board may abandon an interview at any time via /cancel.
+      if (current.kind === "interview") {
+        if (current.status !== "pending") {
+          throw conflict("Interview has already been resolved");
+        }
+        const interview = hydrateInteraction(current) as InterviewInteraction;
+        if (isTerminalInterviewPhase(interview.payload.phase)) {
+          throw conflict("Interview has already been resolved");
+        }
+        const abandonReason = data.reason?.trim() || null;
+        const nextPayload: InterviewPayload = { ...interview.payload, phase: "abandoned" };
+        const [updated] = await db
+          .update(issueThreadInteractions)
+          .set({
+            status: "cancelled",
+            payload: nextPayload,
+            result: buildInterviewResult(interview.payload, "abandoned", {
+              reason: abandonReason,
+              abandonedBy: "board",
+            }),
+            resolvedByAgentId: actor.agentId ?? null,
+            resolvedByUserId: actor.userId ?? null,
+            resolvedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(issueThreadInteractions.id, interactionId),
+            eq(issueThreadInteractions.status, "pending"),
+          ))
+          .returning();
+        if (!updated) {
+          throw conflict("Interview has already been resolved");
+        }
+        await touchIssue(db, issue.id);
+        const cancelled = hydrateInteraction(updated);
+        await emitInteractionResolvedTelemetry(db, cancelled);
+        return cancelled;
+      }
+
       if (current.kind !== "ask_user_questions") {
-        throw unprocessable("Only ask_user_questions interactions can be cancelled");
+        throw unprocessable("Only ask_user_questions or interview interactions can be cancelled");
       }
       if (current.status !== "pending") {
         throw conflict("Interaction has already been resolved");
@@ -1705,6 +1881,110 @@ export function issueThreadInteractionService(db: Db) {
       const cancelled = hydrateInteraction(updated);
       await emitInteractionResolvedTelemetry(db, cancelled);
       return cancelled;
+    },
+
+    // TRE-932: agent-driven advance of an in-flight interview. `ask` appends the
+    // next question (phase -> awaiting_answer); `complete`/`abandon` terminate the
+    // interview (statuses answered/cancelled respectively).
+    advanceInterview: async (
+      issue: { id: string; companyId: string },
+      interactionId: string,
+      input: AdvanceInterview,
+      actor: InteractionActor,
+    ) => {
+      const data = advanceInterviewSchema.parse(input);
+      const current = await db
+        .select()
+        .from(issueThreadInteractions)
+        .where(eq(issueThreadInteractions.id, interactionId))
+        .then((rows) => rows[0] ?? null);
+
+      if (!current) throw notFound("Interaction not found");
+      if (current.companyId !== issue.companyId || current.issueId !== issue.id) {
+        throw notFound("Interaction not found");
+      }
+      if (current.kind !== "interview") {
+        throw unprocessable("Only interview interactions can be advanced");
+      }
+      if (current.status !== "pending") {
+        throw conflict("Interview has already been resolved");
+      }
+
+      const interview = hydrateInteraction(current) as InterviewInteraction;
+      const phase = interview.payload.phase;
+      if (isTerminalInterviewPhase(phase)) {
+        throw conflict("Interview has already been resolved");
+      }
+
+      if (data.action === "ask") {
+        if (phase !== "awaiting_next_question") {
+          throw conflict("Interview is not ready for the next question");
+        }
+        if (interview.payload.turns.length >= INTERVIEW_INTERACTION_MAX_TURNS) {
+          throw unprocessable(`Interview cannot exceed ${INTERVIEW_INTERACTION_MAX_TURNS} turns`);
+        }
+        const nextTurn: InterviewTurn = {
+          id: randomUUID(),
+          question: data.question,
+          answer: null,
+          askedAt: nowIso(),
+          answeredAt: null,
+        };
+        const nextPayload: InterviewPayload = {
+          ...interview.payload,
+          phase: "awaiting_answer",
+          turns: [...interview.payload.turns, nextTurn],
+        };
+        const [updated] = await db
+          .update(issueThreadInteractions)
+          .set({ payload: nextPayload, updatedAt: new Date() })
+          .where(and(
+            eq(issueThreadInteractions.id, interactionId),
+            eq(issueThreadInteractions.status, "pending"),
+            interviewPhaseGuard("awaiting_next_question"),
+          ))
+          .returning();
+        if (!updated) {
+          throw conflict("Interview is not ready for the next question");
+        }
+        await touchIssue(db, issue.id);
+        return hydrateInteraction(updated);
+      }
+
+      // Terminal actions: complete | abandon.
+      const outcome = data.action === "complete" ? "complete" : "abandoned";
+      const result = data.action === "complete"
+        ? buildInterviewResult(interview.payload, "complete", {
+            summaryMarkdown: data.summaryMarkdown ?? null,
+          })
+        : buildInterviewResult(interview.payload, "abandoned", {
+            reason: data.reason ?? null,
+            abandonedBy: "agent",
+          });
+      const nextPayload: InterviewPayload = { ...interview.payload, phase: outcome };
+      const [updated] = await db
+        .update(issueThreadInteractions)
+        .set({
+          status: outcome === "complete" ? "answered" : "cancelled",
+          payload: nextPayload,
+          result,
+          resolvedByAgentId: actor.agentId ?? null,
+          resolvedByUserId: actor.userId ?? null,
+          resolvedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(issueThreadInteractions.id, interactionId),
+          eq(issueThreadInteractions.status, "pending"),
+        ))
+        .returning();
+      if (!updated) {
+        throw conflict("Interview has already been resolved");
+      }
+      await touchIssue(db, issue.id);
+      const resolved = hydrateInteraction(updated);
+      await emitInteractionResolvedTelemetry(db, resolved);
+      return resolved;
     },
   };
 }

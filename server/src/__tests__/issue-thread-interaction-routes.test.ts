@@ -19,6 +19,7 @@ const mockInteractionService = vi.hoisted(() => ({
   expireRequestConfirmationsSupersededByHistoricalComments: vi.fn(),
   answerQuestions: vi.fn(),
   cancelQuestions: vi.fn(),
+  advanceInterview: vi.fn(),
 }));
 
 const mockHeartbeatService = vi.hoisted(() => ({
@@ -995,5 +996,108 @@ describe.sequential("issue thread interaction routes", () => {
         userId: null,
       },
     );
+  });
+
+  // TRE-932 — native interview interaction wiring.
+  it("wakes the assignee when the board answers an interview via /respond", async () => {
+    mockInteractionService.answerQuestions.mockResolvedValueOnce({
+      id: "interaction-iv",
+      companyId: "company-1",
+      issueId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      kind: "interview",
+      status: "pending",
+      continuationPolicy: "wake_assignee",
+      idempotencyKey: null,
+      sourceCommentId: null,
+      sourceRunId: "run-9",
+      payload: {
+        version: 1,
+        phase: "awaiting_next_question",
+        turns: [{ id: "t1", question: "Q1", answer: "A1", askedAt: "2026-07-08T10:00:00.000Z", answeredAt: "2026-07-08T10:05:00.000Z" }],
+      },
+      result: null,
+      createdAt: "2026-07-08T10:00:00.000Z",
+      updatedAt: "2026-07-08T10:05:00.000Z",
+    });
+    const app = await createApp();
+
+    const res = await request(app)
+      .post("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/interactions/interaction-iv/respond")
+      .send({ answer: "A1" });
+
+    expect(res.status).toBe(200);
+    expect(mockInteractionService.answerQuestions).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }),
+      "interaction-iv",
+      expect.objectContaining({ answer: "A1" }),
+      expect.anything(),
+    );
+    // The interview stays pending but the assignee is still woken so it can ask
+    // the next question or terminate.
+    expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(
+      ASSIGNEE_AGENT_ID,
+      expect.objectContaining({
+        payload: expect.objectContaining({ interactionKind: "interview" }),
+      }),
+    );
+  });
+
+  it("routes an agent interview advance to advanceInterview", async () => {
+    mockInteractionService.advanceInterview.mockResolvedValueOnce({
+      id: "interaction-iv",
+      companyId: "company-1",
+      issueId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      kind: "interview",
+      status: "pending",
+      continuationPolicy: "wake_assignee",
+      idempotencyKey: null,
+      sourceCommentId: null,
+      sourceRunId: "run-1",
+      payload: {
+        version: 1,
+        phase: "awaiting_answer",
+        turns: [
+          { id: "t1", question: "Q1", answer: "A1", askedAt: "2026-07-08T10:00:00.000Z", answeredAt: "2026-07-08T10:05:00.000Z" },
+          { id: "t2", question: "Q2", answer: null, askedAt: "2026-07-08T10:06:00.000Z", answeredAt: null },
+        ],
+      },
+      result: null,
+      createdAt: "2026-07-08T10:00:00.000Z",
+      updatedAt: "2026-07-08T10:06:00.000Z",
+    });
+    const app = await createApp({
+      type: "agent",
+      agentId: CREATED_AGENT_ID,
+      companyId: "company-1",
+      runId: "run-1",
+    });
+
+    const res = await request(app)
+      .post("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/interactions/interaction-iv/advance")
+      .send({ action: "ask", question: "Q2" });
+
+    expect(res.status).toBe(200);
+    expect(mockInteractionService.advanceInterview).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }),
+      "interaction-iv",
+      expect.objectContaining({ action: "ask", question: "Q2" }),
+      { agentId: CREATED_AGENT_ID, userId: null },
+    );
+  });
+
+  it("rejects an interview advance with an unknown action", async () => {
+    const app = await createApp({
+      type: "agent",
+      agentId: CREATED_AGENT_ID,
+      companyId: "company-1",
+      runId: "run-1",
+    });
+
+    const res = await request(app)
+      .post("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/interactions/interaction-iv/advance")
+      .send({ action: "explode" });
+
+    expect(res.status).toBe(400);
+    expect(mockInteractionService.advanceInterview).not.toHaveBeenCalled();
   });
 });
