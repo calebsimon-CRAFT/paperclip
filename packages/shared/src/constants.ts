@@ -230,8 +230,32 @@ export const ISSUE_THREAD_INTERACTION_KINDS = [
   "ask_user_questions",
   "request_confirmation",
   "request_checkbox_confirmation",
+  // TRE-932: a native multi-turn interview. Unlike ask_user_questions (a one-shot
+  // multiple-choice card), an interview holds an ordered list of free-text turns
+  // (question + optional answer) on a single interaction row, advancing through a
+  // phase machine (awaiting_answer -> awaiting_next_question -> ... -> complete |
+  // abandoned) so an agent can interview the board one question at a time.
+  "interview",
 ] as const;
 export type IssueThreadInteractionKind = (typeof ISSUE_THREAD_INTERACTION_KINDS)[number];
+
+// TRE-932: phases of an in-flight interview. `awaiting_answer` = the last turn has a
+// question the board has not yet answered; `awaiting_next_question` = the board has
+// answered and the agent may append the next question (or terminate). `complete` and
+// `abandoned` are terminal (they map to interaction statuses `answered`/`cancelled`).
+export const INTERVIEW_INTERACTION_PHASES = [
+  "awaiting_answer",
+  "awaiting_next_question",
+  "complete",
+  "abandoned",
+] as const;
+export type InterviewInteractionPhase = (typeof INTERVIEW_INTERACTION_PHASES)[number];
+
+export const INTERVIEW_INTERACTION_TERMINAL_PHASES = ["complete", "abandoned"] as const;
+export type InterviewInteractionTerminalPhase =
+  (typeof INTERVIEW_INTERACTION_TERMINAL_PHASES)[number];
+
+export const INTERVIEW_INTERACTION_MAX_TURNS = 100;
 
 export const REQUEST_CHECKBOX_CONFIRMATION_OPTION_LIMIT = 200;
 

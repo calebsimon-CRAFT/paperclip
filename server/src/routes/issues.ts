@@ -21,6 +21,7 @@ import {
 import {
   addIssueCommentSchema,
   acceptIssueThreadInteractionSchema,
+  advanceInterviewSchema,
   attachmentArtifactWorkProductMetadataSchema,
   cancelIssueThreadInteractionSchema,
   companySearchQuerySchema,
@@ -6373,6 +6374,61 @@ export function issueRoutes(
         interaction,
         actor,
         source: "issue.interaction.cancel",
+      });
+
+      res.json(interaction);
+    },
+  );
+
+  // TRE-932: agent-driven interview advance. Unlike accept/reject/respond/cancel
+  // (board-only), this is the agent (assignee) path — appending the next question
+  // or terminating the interview. The board still answers via /respond and may
+  // abandon via /cancel.
+  router.post(
+    "/issues/:id/interactions/:interactionId/advance",
+    validate(advanceInterviewSchema),
+    async (req, res) => {
+      const id = req.params.id as string;
+      const interactionId = req.params.interactionId as string;
+      const issue = await svc.getById(id);
+      if (!issue) {
+        res.status(404).json({ error: "Issue not found" });
+        return;
+      }
+      assertCompanyAccess(req, issue.companyId);
+      if (req.actor.type === "agent") {
+        if (!(await assertAgentIssueMutationAllowed(req, res, issue))) return;
+        if (await assertLowTrustControlPlaneDenied(req, res, issue.companyId, issue)) return;
+        if (!requireAgentRunId(req, res)) return;
+      } else {
+        assertBoard(req);
+      }
+
+      const actor = getActorInfo(req);
+      const interaction = await issueThreadInteractionService(db).advanceInterview(issue, interactionId, req.body, {
+        agentId: actor.agentId,
+        userId: actor.actorType === "user" ? actor.actorId : null,
+      });
+
+      await logActivity(db, {
+        companyId: issue.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        runId: actor.runId,
+        action: interaction.status === "cancelled"
+          ? "issue.thread_interaction_cancelled"
+          : "issue.thread_interaction_answered",
+        entityType: "issue",
+        entityId: issue.id,
+        details: {
+          interactionId: interaction.id,
+          interactionKind: interaction.kind,
+          interactionStatus: interaction.status,
+          interviewAction: req.body?.action ?? null,
+          interviewPhase: interaction.kind === "interview" ? interaction.payload.phase : null,
+          turnCount: interaction.kind === "interview" ? interaction.payload.turns.length : null,
+        },
       });
 
       res.json(interaction);

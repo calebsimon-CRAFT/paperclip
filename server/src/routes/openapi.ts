@@ -120,6 +120,7 @@ import {
   createAcceptedPlanDecompositionSchema,
   resolveIssueRecoveryActionSchema,
   cancelIssueThreadInteractionSchema,
+  advanceInterviewSchema,
   // Secret provider configs and remote import
   createSecretProviderConfigSchema,
   updateSecretProviderConfigSchema,
@@ -4431,6 +4432,14 @@ registerCurrentRoute({
   tags: ["issues"],
   summary: "Cancel an issue question interaction",
   body: cancelIssueThreadInteractionSchema,
+});
+
+registerCurrentRoute({
+  method: "post",
+  path: "/api/issues/{id}/interactions/{interactionId}/advance",
+  tags: ["issues"],
+  summary: "Advance a native interview interaction (ask next question, complete, or abandon)",
+  body: advanceInterviewSchema,
 });
 
 for (const route of [
