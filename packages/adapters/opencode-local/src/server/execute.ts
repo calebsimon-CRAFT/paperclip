@@ -30,6 +30,7 @@ import {
   parseObject,
   buildPaperclipEnv,
   joinPromptSections,
+  buildAgentMemoryRecallSection,
   buildInvocationEnvForLogs,
   ensureAbsoluteDirectory,
   ensurePaperclipSkillSymlink,
@@ -547,8 +548,13 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     const shouldUseResumeDeltaPrompt = Boolean(sessionId) && wakePrompt.length > 0;
     const renderedPrompt = shouldUseResumeDeltaPrompt ? "" : renderTemplate(promptTemplate, templateData);
     const sessionHandoffNote = asString(context.paperclipSessionHandoffMarkdown, "").trim();
+    // TRE-926: inject a bounded head of the agent's own MEMORY.md when the recall
+    // shim is enabled. Feature-flagged (default off) and degrade-open, so this is a
+    // no-op unless PAPERCLIP_AGENT_MEMORY_RECALL is set.
+    const memoryRecallSection = await buildAgentMemoryRecallSection(agentHome);
     const prompt = joinPromptSections([
       instructionsPrefix,
+      memoryRecallSection,
       renderedBootstrapPrompt,
       wakePrompt,
       sessionHandoffNote,

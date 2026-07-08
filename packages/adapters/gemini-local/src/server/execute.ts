@@ -34,6 +34,7 @@ import {
   ensureAbsoluteDirectory,
   ensurePaperclipSkillSymlink,
   joinPromptSections,
+  buildAgentMemoryRecallSection,
   ensurePathInEnv,
   refreshPaperclipWorkspaceEnvForExecution,
   readPaperclipRuntimeSkillEntries,
@@ -527,8 +528,13 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const sessionHandoffNote = asString(context.paperclipSessionHandoffMarkdown, "").trim();
   const paperclipEnvNote = renderPaperclipEnvNote(env);
   const apiAccessNote = renderApiAccessNote(env);
+  // TRE-926: inject a bounded head of the agent's own MEMORY.md when the recall
+  // shim is enabled. Feature-flagged (default off) and degrade-open, so this is a
+  // no-op unless PAPERCLIP_AGENT_MEMORY_RECALL is set.
+  const memoryRecallSection = await buildAgentMemoryRecallSection(agentHome);
   const prompt = joinPromptSections([
     instructionsPrefix,
+    memoryRecallSection,
     renderedBootstrapPrompt,
     wakePrompt,
     sessionHandoffNote,

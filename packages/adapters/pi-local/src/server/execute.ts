@@ -30,6 +30,7 @@ import {
   parseObject,
   buildPaperclipEnv,
   joinPromptSections,
+  buildAgentMemoryRecallSection,
   buildInvocationEnvForLogs,
   ensureAbsoluteDirectory,
   ensurePaperclipSkillSymlink,
@@ -587,6 +588,16 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       }
     } else {
       systemPromptExtension = promptTemplate;
+    }
+
+    // TRE-926: inject a bounded head of the agent's own MEMORY.md when the recall
+    // shim is enabled. Feature-flagged (default off) and degrade-open, so this is a
+    // no-op unless PAPERCLIP_AGENT_MEMORY_RECALL is set.
+    const memoryRecallSection = await buildAgentMemoryRecallSection(agentHome);
+    if (memoryRecallSection) {
+      systemPromptExtension = systemPromptExtension
+        ? `${systemPromptExtension}\n\n${memoryRecallSection}`
+        : memoryRecallSection;
     }
 
     const bootstrapPromptTemplate = asString(config.bootstrapPromptTemplate, "");
