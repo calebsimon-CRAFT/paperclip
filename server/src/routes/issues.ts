@@ -4651,6 +4651,7 @@ export function issueRoutes(
       scheduledRetry,
       activeRecoveryAction,
       linkedCases,
+      childIssues,
     ] = await Promise.all([
       resolveIssueProjectAndGoal(issue),
       svc.getAncestors(issue.id),
@@ -4664,6 +4665,7 @@ export function issueRoutes(
       svc.getCurrentScheduledRetry(issue.id),
       recoveryActionsSvc.getActiveForIssue(issue.companyId, issue.id),
       listIssueLinkedCases(db, issue.companyId, issue.id),
+      svc.getChildSummaries(issue.id),
     ]);
     const recoveryActionsByRelationIssue = await relationRecoveryActionMap(
       recoveryActionsSvc,
@@ -4698,6 +4700,7 @@ export function issueRoutes(
       activeRecoveryAction: revalidatedActiveRecoveryAction,
       blockedBy: relationsWithRecoveryActions.blockedBy,
       blocks: relationsWithRecoveryActions.blocks,
+      childIssues,
       relatedWork: referenceSummary,
       referencedIssueIdentifiers: referenceSummary.outbound.map((item) => item.issue.identifier ?? item.issue.id),
       ...documentPayload,

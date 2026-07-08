@@ -8,6 +8,7 @@ const mockIssueService = vi.hoisted(() => ({
   getById: vi.fn(),
   getAncestors: vi.fn(),
   getRelationSummaries: vi.fn(),
+  getChildSummaries: vi.fn(),
   findMentionedProjectIds: vi.fn(),
   getCommentCursor: vi.fn(),
   getComment: vi.fn(),
@@ -197,6 +198,7 @@ describe.sequential("issue goal context routes", () => {
     mockIssueService.getById.mockResolvedValue(legacyProjectLinkedIssue);
     mockIssueService.getAncestors.mockResolvedValue([]);
     mockIssueService.getRelationSummaries.mockResolvedValue({ blockedBy: [], blocks: [] });
+    mockIssueService.getChildSummaries.mockResolvedValue([]);
     mockIssueService.findMentionedProjectIds.mockResolvedValue([]);
     mockIssueService.getCommentCursor.mockResolvedValue({
       totalComments: 0,
@@ -277,6 +279,45 @@ describe.sequential("issue goal context routes", () => {
       { includeCommentBodies: false },
     );
     expect(mockGoalService.getDefaultCompanyGoal).not.toHaveBeenCalled();
+  });
+
+  it("returns an empty childIssues array from GET /issues/:id when the issue has no children", async () => {
+    const res = await request(createApp()).get("/api/issues/11111111-1111-4111-8111-111111111111");
+
+    expect(res.status).toBe(200);
+    expect(mockIssueService.getChildSummaries).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+    );
+    expect(res.body.childIssues).toEqual([]);
+  });
+
+  it("surfaces child issues on GET /issues/:id ordered as the service returns them", async () => {
+    const children = [
+      {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        identifier: "PAP-600",
+        title: "First child",
+        status: "todo",
+        priority: "high",
+        assigneeAgentId: "33333333-3333-4333-8333-333333333333",
+        assigneeUserId: null,
+      },
+      {
+        id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        identifier: "PAP-601",
+        title: "Second child",
+        status: "in_progress",
+        priority: "medium",
+        assigneeAgentId: null,
+        assigneeUserId: "local-board",
+      },
+    ];
+    mockIssueService.getChildSummaries.mockResolvedValue(children);
+
+    const res = await request(createApp()).get("/api/issues/11111111-1111-4111-8111-111111111111");
+
+    expect(res.status).toBe(200);
+    expect(res.body.childIssues).toEqual(children);
   });
 
   it("keeps GET /issues/:id project and workspace embeds compact for fast detail loads", async () => {
