@@ -744,10 +744,16 @@ type RecoveryActionsLister = {
   ) => Promise<Map<string, NonNullable<IssueRelationIssueSummary["activeRecoveryAction"]>>>;
 };
 
+type RelationSummarySets = {
+  blockedBy: IssueRelationIssueSummary[];
+  blocks: IssueRelationIssueSummary[];
+  childIssues?: IssueRelationIssueSummary[];
+};
+
 async function relationRecoveryActionMap(
   recoveryActionsSvc: RecoveryActionsLister,
   companyId: string,
-  relations: { blockedBy: IssueRelationIssueSummary[]; blocks: IssueRelationIssueSummary[] },
+  relations: RelationSummarySets,
 ): Promise<Map<string, NonNullable<IssueRelationIssueSummary["activeRecoveryAction"]>>> {
   const candidates: IssueRelationIssueSummary[] = [];
   const visit = (summary: IssueRelationIssueSummary) => {
@@ -758,13 +764,14 @@ async function relationRecoveryActionMap(
   };
   for (const blocker of relations.blockedBy) visit(blocker);
   for (const blocking of relations.blocks) visit(blocking);
+  for (const child of relations.childIssues ?? []) visit(child);
   if (candidates.length === 0) return new Map();
   const ids = [...new Set(candidates.map((summary) => summary.id))];
   return recoveryActionsSvc.listActiveForIssues(companyId, ids);
 }
 
 function withRecoveryActionsOnRelationSummaries(
-  relations: { blockedBy: IssueRelationIssueSummary[]; blocks: IssueRelationIssueSummary[] },
+  relations: RelationSummarySets,
   recoveryActionByIssueId: Map<string, NonNullable<IssueRelationIssueSummary["activeRecoveryAction"]>>,
 ) {
   const augment = (summary: IssueRelationIssueSummary): IssueRelationIssueSummary => ({
@@ -775,6 +782,7 @@ function withRecoveryActionsOnRelationSummaries(
   return {
     blockedBy: relations.blockedBy.map(augment),
     blocks: relations.blocks.map(augment),
+    childIssues: (relations.childIssues ?? []).map(augment),
   };
 }
 
@@ -4651,6 +4659,7 @@ export function issueRoutes(
       scheduledRetry,
       activeRecoveryAction,
       linkedCases,
+      childIssues,
     ] = await Promise.all([
       resolveIssueProjectAndGoal(issue),
       svc.getAncestors(issue.id),
@@ -4664,14 +4673,16 @@ export function issueRoutes(
       svc.getCurrentScheduledRetry(issue.id),
       recoveryActionsSvc.getActiveForIssue(issue.companyId, issue.id),
       listIssueLinkedCases(db, issue.companyId, issue.id),
+      svc.getChildSummaries(issue.id),
     ]);
+    const relationsWithChildren = { ...relations, childIssues };
     const recoveryActionsByRelationIssue = await relationRecoveryActionMap(
       recoveryActionsSvc,
       issue.companyId,
-      relations,
+      relationsWithChildren,
     );
     const relationsWithRecoveryActions = withRecoveryActionsOnRelationSummaries(
-      relations,
+      relationsWithChildren,
       recoveryActionsByRelationIssue,
     );
     const revalidatedActiveRecoveryAction = await revalidateActiveSourceRecoveryForRead({
@@ -4698,6 +4709,7 @@ export function issueRoutes(
       activeRecoveryAction: revalidatedActiveRecoveryAction,
       blockedBy: relationsWithRecoveryActions.blockedBy,
       blocks: relationsWithRecoveryActions.blocks,
+      childIssues: relationsWithRecoveryActions.childIssues,
       relatedWork: referenceSummary,
       referencedIssueIdentifiers: referenceSummary.outbound.map((item) => item.issue.identifier ?? item.issue.id),
       ...documentPayload,
