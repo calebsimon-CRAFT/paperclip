@@ -86,3 +86,29 @@ export type {
   SandboxCallbackBridgeWorkerHandle,
   StartedSandboxCallbackBridgeServer,
 } from "./sandbox-callback-bridge.js";
+// TRE-933 — planning-mode helper to drive a native `interview` (TRE-932) one
+// question at a time. Pure/transport-agnostic, so it stays browser-safe.
+export {
+  buildOpenInterviewRequest,
+  buildAskRequest,
+  buildCompleteRequest,
+  buildAbandonRequest,
+  interpretInterview,
+  isInterviewTerminal,
+  createHttpInterviewApi,
+  InterviewSession,
+} from "./interview-driver.js";
+export type {
+  InterviewPhase,
+  InterviewTurn,
+  InterviewPayload,
+  InterviewResult,
+  InterviewInteraction,
+  OpenInterviewOptions,
+  OpenInterviewRequest,
+  AdvanceInterviewRequest,
+  InterviewStep,
+  InterviewApi,
+  FetchLike,
+  HttpInterviewApiOptions,
+} from "./interview-driver.js";
