@@ -18,6 +18,11 @@ const mockIssueService = vi.hoisted(() => ({
   listAttachments: vi.fn(),
 }));
 
+const mockRecoveryActionService = vi.hoisted(() => ({
+  getActiveForIssue: vi.fn(),
+  listActiveForIssues: vi.fn(),
+}));
+
 const mockProjectService = vi.hoisted(() => ({
   getById: vi.fn(),
   listByIds: vi.fn(),
@@ -114,10 +119,7 @@ vi.mock("../services/index.js", () => ({
   heartbeatService: () => mockHeartbeatService,
   instanceSettingsService: () => mockInstanceSettingsService,
   issueApprovalService: () => ({}),
-  issueRecoveryActionService: () => ({
-    getActiveForIssue: vi.fn(async () => null),
-    listActiveForIssues: vi.fn(async () => new Map()),
-  }),
+  issueRecoveryActionService: () => mockRecoveryActionService,
   issueThreadInteractionService: () => ({
     listForIssue: vi.fn(async () => []),
     expireRequestConfirmationsSupersededByComment: vi.fn(async () => []),
@@ -199,6 +201,8 @@ describe.sequential("issue goal context routes", () => {
     mockIssueService.getAncestors.mockResolvedValue([]);
     mockIssueService.getRelationSummaries.mockResolvedValue({ blockedBy: [], blocks: [] });
     mockIssueService.getChildSummaries.mockResolvedValue([]);
+    mockRecoveryActionService.getActiveForIssue.mockResolvedValue(null);
+    mockRecoveryActionService.listActiveForIssues.mockResolvedValue(new Map());
     mockIssueService.findMentionedProjectIds.mockResolvedValue([]);
     mockIssueService.getCommentCursor.mockResolvedValue({
       totalComments: 0,
@@ -317,7 +321,33 @@ describe.sequential("issue goal context routes", () => {
     const res = await request(createApp()).get("/api/issues/11111111-1111-4111-8111-111111111111");
 
     expect(res.status).toBe(200);
-    expect(res.body.childIssues).toEqual(children);
+    // Order preserved; each child enriched with the same activeRecoveryAction field as blockedBy/blocks.
+    expect(res.body.childIssues).toEqual(children.map((child) => ({ ...child, activeRecoveryAction: null })));
+  });
+
+  it("enriches child issues with their active recovery action like blockedBy/blocks", async () => {
+    const childId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const child = {
+      id: childId,
+      identifier: "PAP-600",
+      title: "Child under recovery",
+      status: "in_progress",
+      priority: "high",
+      assigneeAgentId: "33333333-3333-4333-8333-333333333333",
+      assigneeUserId: null,
+    };
+    const recoveryAction = {
+      id: "99999999-9999-4999-8999-999999999999",
+      status: "active",
+      ownerAgentId: "33333333-3333-4333-8333-333333333333",
+    };
+    mockIssueService.getChildSummaries.mockResolvedValue([child]);
+    mockRecoveryActionService.listActiveForIssues.mockResolvedValue(new Map([[childId, recoveryAction]]));
+
+    const res = await request(createApp()).get("/api/issues/11111111-1111-4111-8111-111111111111");
+
+    expect(res.status).toBe(200);
+    expect(res.body.childIssues).toEqual([{ ...child, activeRecoveryAction: recoveryAction }]);
   });
 
   it("keeps GET /issues/:id project and workspace embeds compact for fast detail loads", async () => {
