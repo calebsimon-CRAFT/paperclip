@@ -1,3 +1,8 @@
+# Sane default: let git detect text and normalize line endings to LF in the repo
+# on commit. Kept as text=auto (not a forced eol) so it does not fight per-dev
+# working-tree preferences on ordinary files.
+* text=auto
+
 # Force LF on SQL migrations. The drizzle custom migrator (packages/db/client.ts)
 # hashes raw migration file bytes and compares against live __drizzle_migrations;
 # a CRLF checkout on Windows breaks migration-journal identity vs live (TRE-948),
