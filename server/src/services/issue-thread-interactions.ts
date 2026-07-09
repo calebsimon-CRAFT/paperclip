@@ -1584,7 +1584,6 @@ export function issueThreadInteractionService(db: Db) {
         }
         await touchIssue(db, issue.id);
         const cancelled = hydrateInteraction(updated);
-        await emitInteractionResolvedTelemetry(db, cancelled);
         return cancelled;
       }
 
@@ -1726,7 +1725,6 @@ export function issueThreadInteractionService(db: Db) {
       }
       await touchIssue(db, issue.id);
       const resolved = hydrateInteraction(updated);
-      await emitInteractionResolvedTelemetry(db, resolved);
       return resolved;
     },
   };
