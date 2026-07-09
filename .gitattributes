@@ -1,0 +1,5 @@
+# Force LF on SQL migrations. The drizzle custom migrator (packages/db/client.ts)
+# hashes raw migration file bytes and compares against live __drizzle_migrations;
+# a CRLF checkout on Windows breaks migration-journal identity vs live (TRE-948),
+# which caused the fork-build cutover-v1 boot failure. Keep migrations LF-only.
+*.sql text eol=lf
