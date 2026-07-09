@@ -9,7 +9,7 @@
  * flag graduates or dies.
  */
 import { useEffect, useMemo, useState } from "react";
-import type { Agent } from "@paperclipai/shared";
+import type { Agent, InterviewInteraction } from "@paperclipai/shared";
 import { AlertTriangle, CheckCircle2, ChevronRight, CircleDashed, GitBranch, ListChecks, Loader2, MessageSquareQuote, XCircle } from "lucide-react";
 import { Link } from "@/lib/router";
 import { formatAssigneeUserLabel } from "../lib/assignees";
@@ -1766,6 +1766,54 @@ function RequestCheckboxConfirmationCard({
   );
 }
 
+// TRE-932: read-only transcript view of a native interview in the classic card so
+// the interaction union stays type-sound. The board answers the open question and
+// the agent advances via the interview API; richer controls are a follow-up UI item.
+function InterviewCardClassic({ interaction }: { interaction: InterviewInteraction }) {
+  const { topic, phase, turns } = interaction.payload;
+  const awaitingAnswer = phase === "awaiting_answer" && interaction.status === "pending";
+  return (
+    <div className="space-y-4">
+      {topic ? (
+        <div className="text-sm text-muted-foreground">
+          <span className="font-semibold text-foreground">Topic:</span> {topic}
+        </div>
+      ) : null}
+      <ol className="space-y-3">
+        {turns.map((turn, index) => (
+          <li key={turn.id} className="rounded-sm border border-border/70 p-3">
+            <div className="text-xs font-semibold uppercase text-muted-foreground">
+              Question {index + 1}
+            </div>
+            <div className="mt-1 text-sm text-foreground">
+              <MarkdownBody>{turn.question}</MarkdownBody>
+            </div>
+            {turn.answer != null ? (
+              <div className="mt-2 border-l-2 border-border pl-3 text-sm text-muted-foreground">
+                <div className="text-xs font-semibold uppercase">Answer</div>
+                <MarkdownBody>{turn.answer}</MarkdownBody>
+              </div>
+            ) : (
+              <div className="mt-2 text-xs italic text-muted-foreground">Awaiting the board's answer.</div>
+            )}
+          </li>
+        ))}
+      </ol>
+      {interaction.result?.summaryMarkdown ? (
+        <div className="rounded-sm border border-border/70 bg-muted/30 p-3 text-sm">
+          <div className="text-xs font-semibold uppercase text-muted-foreground">Summary</div>
+          <MarkdownBody>{interaction.result.summaryMarkdown}</MarkdownBody>
+        </div>
+      ) : null}
+      {awaitingAnswer ? (
+        <div className="text-xs text-muted-foreground">
+          Reply to the open question through the interview API to continue the conversation.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function IssueThreadInteractionCardClassic({
   interaction,
   agentMap,
@@ -1870,6 +1918,8 @@ export function IssueThreadInteractionCardClassic({
             onAcceptInteraction={onAcceptInteraction}
             onRejectInteraction={onRejectInteraction}
           />
+        ) : interaction.kind === "interview" ? (
+          <InterviewCardClassic interaction={interaction} />
         ) : (
           <RequestConfirmationCard
             interaction={interaction}
