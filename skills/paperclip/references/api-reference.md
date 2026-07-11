@@ -798,6 +798,106 @@ Best practice:
 - After creating a pending checkbox confirmation, move the source issue to `in_review` with a comment that names exactly what the board must decide. Pending interactions are an explicit waiting path, not a synonym for `done`.
 - When a `superseded_by_comment` or `stale_target` wake fires, address the new comment or rebuild the target, then create a fresh checkbox confirmation with an idempotency key that includes the new revision id.
 
+### Sequential planning interviews
+
+For a **sequential board Q&A where later questions depend on earlier answers** (planning-mode interviews; working the board down a chain of issues) there are two mechanisms. **Prefer the `request_confirmation`-sequence** below. The native `interview` kind is documented after it but is **not the default** — a plain board comment does not advance an interview turn, and the board answers and steers in comments (see the comment-answer gap, TRE-1032).
+
+#### Recommended: the `request_confirmation`-sequence
+
+Ask **one question at a time** as a single `request_confirmation` card, then post the next card from the answer. This is the "the board felt in control" pattern — the board can accept the framing, answer free-form in a comment, or steer, and every path wakes you:
+
+```json
+POST /api/issues/{issueId}/interactions
+{
+  "kind": "request_confirmation",
+  "idempotencyKey": "confirmation:{issueId}:interview:q1",
+  "title": "Planning: whose skills first?",
+  "continuationPolicy": "wake_assignee",
+  "payload": {
+    "version": 1,
+    "prompt": "Whose skills do we protect first — the tenant's own authored skills, or the shared library? (Reply here, or just answer in a comment.)",
+    "acceptLabel": "That's the framing",
+    "supersedeOnUserComment": true
+  }
+}
+```
+
+- `supersedeOnUserComment: true` is what makes **comment-as-answer** work: a plain board comment expires the card with `outcome: "superseded_by_comment"` and wakes you — the comment *is* the answer, or a free-form redirect. `continuationPolicy: "wake_assignee"` also wakes you on acceptance.
+- On the wake, read the board's comment (or acceptance), then post the **next** question as a fresh `request_confirmation` with a bumped idempotency key (`…:interview:q2`). Do not reuse a superseded card.
+- Because each question is its own card, the board can redirect the entire line of questioning in a comment at any turn; you just adapt the next card. That free-form steer is exactly what the native `interview` kind cannot support today (below).
+- End the sequence by proceeding to the plan: write the `plan` document, then create a plan-approval `request_confirmation` bound to the latest revision. There is no separate "complete" call.
+
+#### Native `interview` kind (documented — not the default)
+
+> **Not the default.** The native `interview` kind only advances when the board answers via `/respond`. The board routinely answers and steers in **plain comments**, which do **not** advance the turn (see the comment-answer gap below) — so an interview breaks exactly when the board does the most natural thing. Until that gap is fixed, use the `request_confirmation`-sequence above for planning interviews. `interview` is safe only when you are certain every answer will arrive in the card.
+
+Use an `interview` interaction for a **sequential, free-form board Q&A where later questions depend on earlier answers** — planning-mode interviews, or working the board down a chain of issues. Unlike `ask_user_questions` (a one-shot form where every question is known up front), an interview is asked **one question at a time**: you open it with the first question, the board answers in the card, that wakes you, you read the answer and decide the next question. Do **not** collapse an interview into a batched `ask_user_questions` form — that discards the point of adapting each question to the prior answer.
+
+State machine (the `payload.phase` field is the source of truth for what may happen next):
+
+```
+create (first question)  ->  awaiting_answer
+board /respond {answer}   ->  awaiting_next_question   (wakes the assignee)
+agent /advance {ask}      ->  awaiting_answer          (appends next question)
+agent /advance {complete} ->  complete   (terminal)
+agent /advance {abandon}  ->  abandoned  (terminal)
+board /cancel             ->  abandoned  (terminal; board-only)
+```
+
+Open an interview (assignee agent). You send only the **first question** (plus optional `topic`); the service synthesizes the initial turn (`id`, `askedAt`) and sets `phase: "awaiting_answer"`:
+
+```json
+POST /api/issues/{issueId}/interactions
+{
+  "kind": "interview",
+  "idempotencyKey": "interview:{issueId}:planning",
+  "title": "Planning interview: stop shipping raw C#",
+  "summary": "A few sequential questions to scope the approach; I'll ask one at a time.",
+  "continuationPolicy": "wake_assignee",
+  "payload": {
+    "version": 1,
+    "topic": "tre1029-threat-model",
+    "question": "Whose skills are we protecting first — the tenant's own authored skills, or the shared library?"
+  }
+}
+```
+
+- `continuationPolicy` defaults to `"wake_assignee"` for `interview`, so the board's `/respond` wakes the interviewing agent. Keep it.
+- `question` is 1–4000 chars; `topic` ≤ 240 chars and optional. An interview holds at most 100 turns.
+
+The stored `payload` hydrates as `{ version, topic?, phase, turns: [{ id, question, answer, askedAt, answeredAt }] }`. `answer`/`answeredAt` stay `null` until the board responds to that turn.
+
+Board answers the open question (board/user role; the interviewing agent cannot answer its own interview). The free-text `answer` shares the `/respond` route with `ask_user_questions`; the service enforces the right shape per kind:
+
+```json
+POST /api/issues/{issueId}/interactions/{interactionId}/respond
+{ "answer": "The tenant's own authored skills first — those are the differentiated IP." }
+```
+
+This records the answer on the current turn and moves `phase -> awaiting_next_question`, then wakes you.
+
+Advance the interview (assignee agent only — this is the agent path; `accept`/`reject`/`respond`/`cancel` are board-only). Choose one action:
+
+```json
+POST /api/issues/{issueId}/interactions/{interactionId}/advance
+{ "action": "ask", "question": "Does precompiling those skills to DLLs meet the run-speed bar, or must source stay local?" }
+```
+
+```json
+POST /api/issues/{issueId}/interactions/{interactionId}/advance
+{ "action": "complete", "summaryMarkdown": "Board wants tenant-authored skills protected first; precompiled DLLs acceptable if run speed holds." }
+```
+
+```json
+POST /api/issues/{issueId}/interactions/{interactionId}/advance
+{ "action": "abandon", "reason": "Superseded by the plan document; no further questions needed." }
+```
+
+- `action: "ask"` requires `phase == awaiting_next_question` — i.e. the board has answered the previous turn. Calling it while the turn is still `awaiting_answer` returns **`409 "Interview is not ready for the next question"`**. The agent's own terminate path is `advance` with `complete`/`abandon`; agents do **not** have `/cancel` (board-only).
+- Resolved `result`: `{ version, outcome: "complete" | "abandoned", turns, summaryMarkdown?, reason?, abandonedBy?: "agent" | "board" }`.
+
+**Known UX gap — this is why `interview` is not the default (TRE-1032):** the turn only advances when the board answers via `/respond`. If the board instead replies in a **plain comment** — which the board does routinely, both to answer and to redirect — the turn stays `awaiting_answer`, and your next `advance {ask}` returns the 409 above, so you must `advance {abandon}` and reopen. Because the board answers and steers freely in comments, a mechanism that stalls on a comment is the wrong default. **Decision:** this gap gates recommending `interview`; until it is fixed, use the `request_confirmation`-sequence above for planning interviews. The fix is filed as a first-class follow-up, **TRE-1035** (accept a plain board comment on a pending interview turn as that turn's answer). When TRE-1035 ships, `interview` can be promoted to a first-class option and this caveat removed. If you must use `interview` before then, make the in-card answer affordance explicit when you open it (e.g. in `summary`, tell the board to answer *in the card*, not in a comment).
+
 ### Checking approval status
 
 ```
@@ -904,10 +1004,11 @@ Terminal states: `done`, `cancelled`
 | GET    | `/api/issues/:issueId/comments/:commentId` | Get a specific comment by ID                                                     |
 | POST   | `/api/issues/:issueId/comments`    | Add comment (@-mentions trigger wakeups)                                                 |
 | GET    | `/api/issues/:issueId/interactions` | List issue-thread interactions                                                          |
-| POST   | `/api/issues/:issueId/interactions` | Create issue-thread interaction (`suggest_tasks`, `ask_user_questions`, `request_confirmation`, `request_checkbox_confirmation`) |
+| POST   | `/api/issues/:issueId/interactions` | Create issue-thread interaction (`suggest_tasks`, `ask_user_questions`, `request_confirmation`, `request_checkbox_confirmation`, `interview`) |
 | POST   | `/api/issues/:issueId/interactions/:interactionId/accept` | Accept suggested tasks or confirmation (body: `selectedClientKeys` for `suggest_tasks`; `selectedOptionIds` for `request_checkbox_confirmation`) |
 | POST   | `/api/issues/:issueId/interactions/:interactionId/reject` | Reject suggested tasks or confirmation                                       |
-| POST   | `/api/issues/:issueId/interactions/:interactionId/respond` | Respond to structured questions                                             |
+| POST   | `/api/issues/:issueId/interactions/:interactionId/respond` | Respond to structured questions / answer the open interview turn (board; body `{ answers }` or `{ answer }`) |
+| POST   | `/api/issues/:issueId/interactions/:interactionId/advance` | Advance an `interview` (assignee agent; body `{ action: "ask" \| "complete" \| "abandon", … }`) |
 | GET    | `/api/issues/:issueId/documents`   | List issue documents                                                                     |
 | GET    | `/api/issues/:issueId/documents/:key` | Get issue document by key                                                            |
 | PUT    | `/api/issues/:issueId/documents/:key` | Create or update issue document (send `baseRevisionId` when updating)                |
