@@ -5586,6 +5586,11 @@ export function issueRoutes(
         source: "issue.comment",
       });
 
+      // TRE-1035: a plain board/user comment advances any pending interview turn
+      // (records it as the answer, phase -> awaiting_next_question). The assignee
+      // is woken by the existing `issue_commented` comment-wake below.
+      await issueThreadInteractionService(db).answerPendingInterviewsFromComment(issue, comment);
+
     } else if (updateReferenceSummaryAfter) {
       issueResponse = {
         ...issueResponse,
@@ -7047,6 +7052,11 @@ export function issueRoutes(
       actor,
       source: "issue.comment",
     });
+
+    // TRE-1035: a plain board/user comment advances any pending interview turn
+    // (records it as the answer, phase -> awaiting_next_question). The assignee is
+    // woken by the existing `issue_commented` comment-wake below.
+    await issueThreadInteractionService(db).answerPendingInterviewsFromComment(currentIssue, comment);
 
     await revalidateActiveSourceRecoveryAfterCommittedWrite({
       issue: currentIssue,

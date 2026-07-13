@@ -1601,4 +1601,142 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       });
     });
   });
+
+  describe("interview comment-answer (TRE-1035)", () => {
+    async function openInterview(companyId: string, issueId: string, question: string) {
+      return interactionsSvc.create({ id: issueId, companyId }, {
+        kind: "interview",
+        payload: { version: 1, topic: "Scope the work", question },
+      }, { userId: "local-board" });
+    }
+
+    it("records a plain board comment as the current turn's answer and advances the phase", async () => {
+      const { companyId, issueId } = await seedConfirmationIssue("Interview comment answer");
+      const created = await openInterview(companyId, issueId, "What is the primary goal?");
+      expect(created).toMatchObject({
+        kind: "interview",
+        payload: { phase: "awaiting_answer" },
+      });
+
+      const answered = await interactionsSvc.answerPendingInterviewsFromComment(
+        { id: issueId, companyId },
+        {
+          id: randomUUID(),
+          body: "  Ship the invite-link flow first.  ",
+          createdAt: new Date(new Date(created.createdAt).getTime() + 1_000),
+          authorUserId: "local-board",
+        },
+      );
+
+      expect(answered).toHaveLength(1);
+      expect(answered[0]).toMatchObject({
+        id: created.id,
+        kind: "interview",
+        status: "pending",
+        payload: { phase: "awaiting_next_question" },
+      });
+      const turn = (answered[0]!.payload as { turns: Array<{ answer: string | null; answeredAt: string | null }> }).turns[0];
+      expect(turn.answer).toBe("Ship the invite-link flow first.");
+      expect(turn.answeredAt).not.toBeNull();
+    });
+
+    it("lets the agent advance to the next question after a comment answer (no 409)", async () => {
+      const { companyId, issueId } = await seedConfirmationIssue("Interview advance after comment");
+      const created = await openInterview(companyId, issueId, "What is the primary goal?");
+
+      await interactionsSvc.answerPendingInterviewsFromComment({ id: issueId, companyId }, {
+        id: randomUUID(),
+        body: "Reduce onboarding friction.",
+        createdAt: new Date(new Date(created.createdAt).getTime() + 1_000),
+        authorUserId: "local-board",
+      });
+
+      // The core of TRE-1032/TRE-1035: `advance {ask}` must succeed now, not 409.
+      const asked = await interactionsSvc.advanceInterview({ id: issueId, companyId }, created.id, {
+        action: "ask",
+        question: "Which surface should we start with?",
+      }, { userId: "local-board" });
+      expect(asked.payload).toMatchObject({ phase: "awaiting_answer" });
+      expect((asked.payload as { turns: unknown[] }).turns).toHaveLength(2);
+
+      // And a second board comment answers the second turn.
+      const answeredAgain = await interactionsSvc.answerPendingInterviewsFromComment({ id: issueId, companyId }, {
+        id: randomUUID(),
+        body: "The admin console.",
+        createdAt: new Date(),
+        authorUserId: "local-board",
+      });
+      expect(answeredAgain).toHaveLength(1);
+      const turns = (answeredAgain[0]!.payload as { turns: Array<{ answer: string | null }> }).turns;
+      expect(turns[1]?.answer).toBe("The admin console.");
+    });
+
+    it("ignores an agent comment (no authorUserId) and an empty comment body", async () => {
+      const { companyId, issueId } = await seedConfirmationIssue("Interview ignores agent/empty");
+      const created = await openInterview(companyId, issueId, "What is the primary goal?");
+
+      const fromAgent = await interactionsSvc.answerPendingInterviewsFromComment({ id: issueId, companyId }, {
+        id: randomUUID(),
+        body: "agent status note",
+        createdAt: new Date(new Date(created.createdAt).getTime() + 1_000),
+        authorUserId: null,
+      });
+      expect(fromAgent).toHaveLength(0);
+
+      const emptyBody = await interactionsSvc.answerPendingInterviewsFromComment({ id: issueId, companyId }, {
+        id: randomUUID(),
+        body: "   ",
+        createdAt: new Date(new Date(created.createdAt).getTime() + 2_000),
+        authorUserId: "local-board",
+      });
+      expect(emptyBody).toHaveLength(0);
+
+      const [row] = await db.select().from(issueThreadInteractions).where(eq(issueThreadInteractions.id, created.id));
+      expect((row?.payload as { phase: string }).phase).toBe("awaiting_answer");
+    });
+
+    it("does not re-answer a turn already awaiting the next question", async () => {
+      const { companyId, issueId } = await seedConfirmationIssue("Interview no double-answer");
+      const created = await openInterview(companyId, issueId, "What is the primary goal?");
+
+      const first = await interactionsSvc.answerPendingInterviewsFromComment({ id: issueId, companyId }, {
+        id: randomUUID(),
+        body: "First answer.",
+        createdAt: new Date(new Date(created.createdAt).getTime() + 1_000),
+        authorUserId: "local-board",
+      });
+      expect(first).toHaveLength(1);
+
+      // A second comment while the phase is awaiting_next_question must not clobber
+      // the recorded answer or spuriously advance — the agent owns the next `ask`.
+      const second = await interactionsSvc.answerPendingInterviewsFromComment({ id: issueId, companyId }, {
+        id: randomUUID(),
+        body: "Second stray comment.",
+        createdAt: new Date(),
+        authorUserId: "local-board",
+      });
+      expect(second).toHaveLength(0);
+
+      const [row] = await db.select().from(issueThreadInteractions).where(eq(issueThreadInteractions.id, created.id));
+      const payload = row?.payload as { phase: string; turns: Array<{ answer: string | null }> };
+      expect(payload.phase).toBe("awaiting_next_question");
+      expect(payload.turns[0]?.answer).toBe("First answer.");
+    });
+
+    it("leaves a resolved (abandoned) interview untouched", async () => {
+      const { companyId, issueId } = await seedConfirmationIssue("Interview resolved untouched");
+      const created = await openInterview(companyId, issueId, "What is the primary goal?");
+      await interactionsSvc.cancelQuestions({ id: issueId, companyId }, created.id, { reason: "changed plans" }, {
+        userId: "local-board",
+      });
+
+      const answered = await interactionsSvc.answerPendingInterviewsFromComment({ id: issueId, companyId }, {
+        id: randomUUID(),
+        body: "too late",
+        createdAt: new Date(),
+        authorUserId: "local-board",
+      });
+      expect(answered).toHaveLength(0);
+    });
+  });
 });

@@ -1208,6 +1208,89 @@ export function issueThreadInteractionService(db: Db) {
       return hydrateInteraction(updated);
     },
 
+    // TRE-1035: accept a plain board/user comment as the answer to a pending
+    // interview turn. Before this, the board could only answer an interview via
+    // POST /respond; a free-form comment (the most natural way the board steers)
+    // left the turn stuck in `awaiting_answer`, so the agent's next `advance {ask}`
+    // 409'd ("Interview is not ready for the next question") and had to abandon +
+    // reopen (the TRE-1032 gap that gated recommending `interview` as the default
+    // planning-interview mechanism).
+    //
+    // The comment is recorded strictly as the current turn's answer — the same
+    // effect as /respond — and the interviewing agent is woken by the existing
+    // `issue_commented` comment-wake path. We deliberately do NOT try to classify
+    // the comment as a redirect/abandon signal here: the woken agent reads the
+    // answer and can itself `advance {abandon}` (or /cancel) if the board's reply
+    // was really a redirect. Keeping the control-plane dumb here avoids guessing
+    // the board's intent from free text.
+    //
+    // Interview is intentionally absent from USER_COMMENT_SUPERSEDABLE_INTERACTION_KINDS
+    // (a comment must not silently kill an in-flight interview), so this path and the
+    // supersede path are mutually exclusive and a single comment can both answer an
+    // interview and supersede an unrelated pending confirmation.
+    answerPendingInterviewsFromComment: async (
+      issue: { id: string; companyId: string },
+      comment: { id: string; body: string; createdAt: Date | string; authorUserId?: string | null },
+    ): Promise<IssueThreadInteraction[]> => {
+      // Only real board/user comments answer a turn; agent chatter must not.
+      if (!comment.authorUserId) return [];
+      const answerText = comment.body?.trim();
+      if (!answerText) return [];
+
+      const rows = await db
+        .select()
+        .from(issueThreadInteractions)
+        .where(and(
+          eq(issueThreadInteractions.companyId, issue.companyId),
+          eq(issueThreadInteractions.issueId, issue.id),
+          eq(issueThreadInteractions.kind, "interview"),
+          eq(issueThreadInteractions.status, "pending"),
+        ));
+
+      const answered: IssueThreadInteraction[] = [];
+      for (const row of rows) {
+        const interview = hydrateInteraction(row) as InterviewInteraction;
+        if (interview.payload.phase !== "awaiting_answer") continue;
+        // Ignore a comment that predates the interaction (defensive; a fresh
+        // comment is always at/after, but a replayed/historical sweep may not be).
+        if (!isCommentAtOrAfterInteraction({
+          commentCreatedAt: comment.createdAt,
+          interactionCreatedAt: row.createdAt,
+        })) continue;
+
+        const turns = interview.payload.turns.map((turn) => ({ ...turn }));
+        const lastTurn = turns[turns.length - 1];
+        if (!lastTurn || lastTurn.answer != null) continue;
+        lastTurn.answer = answerText;
+        lastTurn.answeredAt = nowIso();
+        const nextPayload: InterviewPayload = {
+          ...interview.payload,
+          phase: "awaiting_next_question",
+          turns,
+        };
+
+        const [updated] = await db
+          .update(issueThreadInteractions)
+          .set({
+            payload: nextPayload,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(issueThreadInteractions.id, row.id),
+            eq(issueThreadInteractions.status, "pending"),
+            // Guard against a concurrent /respond double-advancing this turn.
+            interviewPhaseGuard("awaiting_answer"),
+          ))
+          .returning();
+        if (updated) answered.push(hydrateInteraction(updated));
+      }
+
+      if (answered.length > 0) {
+        await touchIssue(db, issue.id);
+      }
+      return answered;
+    },
+
     expireRequestConfirmationsSupersededByComment: async (
       issue: { id: string; companyId: string },
       comment: { id: string; createdAt: Date | string; authorUserId?: string | null },
