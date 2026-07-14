@@ -109,6 +109,7 @@ function registerModuleMocks() {
     }),
     issueThreadInteractionService: () => ({
       listForIssue: vi.fn(async () => []),
+      answerPendingInterviewsFromComment: vi.fn(async () => []),
       expireRequestConfirmationsSupersededByComment: vi.fn(async () => []),
       expireStaleRequestConfirmationsForIssueDocument: vi.fn(async () => []),
     }),

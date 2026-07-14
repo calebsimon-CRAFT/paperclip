@@ -960,6 +960,72 @@ Best practice:
 - After creating a pending checkbox confirmation, move the source issue to `in_review` with a comment that names exactly what the board must decide. Pending interactions are an explicit waiting path, not a synonym for `done`.
 - When a `superseded_by_comment` or `stale_target` wake fires, address the new comment or rebuild the target, then create a fresh checkbox confirmation with an idempotency key that includes the new revision id.
 
+### Native interview kind
+
+Use the `interview` interaction kind for a **multi-turn planning conversation** on an issue — one question at a time, each answer shaping the next question. Prefer it over a hand-rolled `request_confirmation` sequence when you are eliciting requirements or decisions turn by turn (a planning interview), not confirming a single yes/no. `interview` is a first-class option: use it directly.
+
+The board answers a turn **two equivalent ways** — a plain comment on the issue, or `POST /respond`. Both record the answer and wake the interviewing agent.
+
+Phases (`phase` is the source of truth for what may happen next):
+
+- `awaiting_answer` — a question is posed; waiting for the board's answer.
+- `awaiting_next_question` — the board answered the current turn; the agent may `advance {ask}` the next question or `advance {complete}`.
+- `complete` / `abandoned` — terminal.
+
+Open an interview (the service synthesizes the first turn and sets `phase → awaiting_answer`):
+
+```json
+POST /api/issues/{issueId}/interactions
+{
+  "kind": "interview",
+  "idempotencyKey": "interview:{issueId}:plan",
+  "title": "Planning interview",
+  "continuationPolicy": "wake_assignee",
+  "payload": {
+    "version": 1,
+    "topic": "Scope the export feature",
+    "question": "What output formats must the export support?"
+  }
+}
+```
+
+The board answers the current turn — either path is equivalent and both wake the agent:
+
+- **Plain comment (TRE-1035).** The board just replies in the issue thread. The comment text is recorded as the current turn's `answer` and `phase → awaiting_next_question`. Only real board/user comments answer a turn; agent comments never do. A comment does **not** abandon the interview — if the board's reply was actually a redirect, read it on wake and `advance {abandon}` (or `/cancel`) yourself; the control plane deliberately does not guess intent from free text.
+- **Structured respond** (unchanged):
+
+```json
+POST /api/issues/{issueId}/interactions/{interactionId}/respond
+{ "answer": "CSV and XLSX." }
+```
+
+Advance the interview (agent action). `ask` requires `phase == awaiting_next_question`; asking while the current turn is still `awaiting_answer` returns `409 "Interview is not ready for the next question"`:
+
+```json
+POST /api/issues/{issueId}/interactions/{interactionId}/advance
+{ "action": "ask", "question": "Should XLSX preserve formulas, or values only?" }
+```
+
+- `{ "action": "ask", "question": "…" }` — appends the next turn; `phase → awaiting_answer`. Capped at 100 turns (`INTERVIEW_INTERACTION_MAX_TURNS`).
+- `{ "action": "complete", "summaryMarkdown": "…" }` — finishes the interview with an optional summary; `phase → complete`.
+- `{ "action": "abandon", "reason": "…" }` — terminates without completing; `phase → abandoned`.
+
+The board may also abandon a pending interview at any time via `POST /api/issues/{issueId}/interactions/{interactionId}/cancel`.
+
+Payload reference:
+
+- **Create** (`createInterviewPayloadSchema`): `version: 1` (required), `question` (the first question, 1–4000 chars, required), `topic` (≤ 240 chars, optional). `supersedeOnUserComment` is accepted but interview is intentionally **not** superseded by a comment — a comment answers the current turn instead.
+- **Advance** (`advanceInterviewSchema`): a discriminated union on `action` — `ask` (`question`, 1–4000 chars), `complete` (`summaryMarkdown`, ≤ 20000 chars, optional), or `abandon` (`reason`, ≤ 4000 chars, optional).
+
+When to choose `interview` over the other kinds:
+
+- Choose `interview` over a `request_confirmation` sequence when you are running a genuine back-and-forth planning conversation where each answer shapes the next question. Confirmations are for discrete yes/no (`request_confirmation`) or subset (`request_checkbox_confirmation`) decisions; `ask_user_questions` is for a fixed short form asked all at once. `interview` is for iterative elicitation.
+
+Best practice:
+
+- After opening an interview or asking the next question (a turn is `awaiting_answer`), move the source issue to `in_review` with a comment naming what you asked. A pending interview turn is an explicit waiting path, not a synonym for `done`.
+- Because a plain comment now answers the current turn, you do not need to instruct the board to use `/respond` — steer the interview naturally in the thread.
+
 ### Checking approval status
 
 ```
@@ -1069,10 +1135,11 @@ Terminal states: `done`, `cancelled`
 | GET    | `/api/issues/:issueId/comments/:commentId` | Get a specific comment by ID                                                     |
 | POST   | `/api/issues/:issueId/comments`    | Add comment (@-mentions trigger wakeups)                                                 |
 | GET    | `/api/issues/:issueId/interactions` | List issue-thread interactions                                                          |
-| POST   | `/api/issues/:issueId/interactions` | Create issue-thread interaction (`suggest_tasks`, `ask_user_questions`, `request_confirmation`, `request_checkbox_confirmation`) |
+| POST   | `/api/issues/:issueId/interactions` | Create issue-thread interaction (`suggest_tasks`, `ask_user_questions`, `request_confirmation`, `request_checkbox_confirmation`, `interview`) |
 | POST   | `/api/issues/:issueId/interactions/:interactionId/accept` | Accept suggested tasks or confirmation (body: `selectedClientKeys` for `suggest_tasks`; `selectedOptionIds` for `request_checkbox_confirmation`) |
 | POST   | `/api/issues/:issueId/interactions/:interactionId/reject` | Reject suggested tasks or confirmation                                       |
-| POST   | `/api/issues/:issueId/interactions/:interactionId/respond` | Respond to structured questions                                             |
+| POST   | `/api/issues/:issueId/interactions/:interactionId/respond` | Respond to structured questions, or answer the current `interview` turn (a plain board comment answers it too) |
+| POST   | `/api/issues/:issueId/interactions/:interactionId/advance` | Advance a native `interview` (`ask` next question, `complete`, or `abandon`) |
 | GET    | `/api/issues/:issueId/documents`   | List issue documents                                                                     |
 | GET    | `/api/issues/:issueId/documents/:key` | Get issue document by key                                                            |
 | PUT    | `/api/issues/:issueId/documents/:key` | Create or update issue document (send `baseRevisionId` when updating)                |

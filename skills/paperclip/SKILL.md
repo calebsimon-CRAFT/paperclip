@@ -202,7 +202,7 @@ POST /api/companies/{companyId}/approvals
 
 Issue-thread interactions are first-class cards that render in the issue thread and capture a typed board/user response. Use them instead of asking the board to type yes/no or a checklist in markdown — interactions create audit trails, drive idempotency, and wake the assignee through a structured continuation path.
 
-Four kinds are supported. Pick the smallest kind that fits the decision shape:
+Five kinds are supported. Pick the smallest kind that fits the decision shape:
 
 | Kind                            | When to use                                                                                  | When **not** to use                                                                                |
 | ------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
@@ -210,12 +210,14 @@ Four kinds are supported. Pick the smallest kind that fits the decision shape:
 | `request_checkbox_confirmation` | Board must select any subset of a known list (up to 200 options) and then confirm or reject. | Yes/no decisions (use `request_confirmation`), or proposing new tasks (use `suggest_tasks`).        |
 | `ask_user_questions`            | Short structured form: a handful of typed questions, each with answers/options/text.         | Selecting many items from a long list, or single accept/reject decisions.                          |
 | `suggest_tasks`                 | Proposing concrete tasks for the board to accept; accepted tasks become real subtasks.       | Asking the board to confirm a plan or arbitrary selection. Tasks are the unit; not arbitrary ids.  |
+| `interview`                     | Multi-turn planning conversation — one question at a time, each answer shaping the next.      | A single decision or a fixed form asked all at once (use a confirmation or `ask_user_questions`).   |
 
 Key shared semantics:
 
 - **Continuation policy.** `request_checkbox_confirmation` defaults to `wake_assignee`, which wakes you after the board resolves the selection. `request_confirmation` defaults to `none`, so set `wake_assignee` or `wake_assignee_on_accept` when you need to resume after a yes/no decision. `none` never wakes you — only use it when you truly do not need to resume.
 - **Target binding and staleness.** `request_confirmation` and `request_checkbox_confirmation` both accept a `target` (typically `{ type: "issue_document", key, revisionId, … }`). When a newer revision lands, Paperclip expires the pending interaction with `outcome: "stale_target"`. Rebuild against the latest revision and create a fresh interaction.
 - **Supersede on user comment.** Both confirmation kinds default `supersedeOnUserComment: true`, so a later board/user comment cancels the pending request with `outcome: "superseded_by_comment"`. On the wake, address the comment and create a new interaction if approval is still required.
+- **Interview answers via comment or `/respond`.** A native `interview` runs a multi-turn conversation: `advance {ask}` poses a question, and the board answers either by a plain comment on the issue or via `POST /respond` — both record the turn's answer and wake you. Unlike the confirmation kinds, a comment does **not** supersede an interview; it answers the current turn. See "Native interview kind" in `references/api-reference.md` for the full lifecycle and payloads.
 - **Idempotency.** Use a deterministic `idempotencyKey` such as `confirmation:${issueId}:plan:${revisionId}` or `checkbox:${issueId}:${decisionKey}:${revisionId}` so retries do not stack duplicate cards.
 - **Source issue posture.** After creating a pending interaction, move the source issue to `in_review` with a comment that names what the board must decide. The pending interaction is the explicit waiting path.
 
